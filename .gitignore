@@ -1,0 +1,28 @@
+# Virtual environment
+venv/
+env/
+
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Database files
+db.sqlite3
+
+# Media and static files
+media/
+static_cdn/ # Or whatever your static files directory is named
+staticfiles/ # If using collectstatic
+
+# Log files
+*.log
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+*.sublime-project
+*.swp # Vim swap files
+
+# Sensitive information
+local_settings.py
+.env
