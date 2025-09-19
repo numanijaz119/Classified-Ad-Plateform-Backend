@@ -37,10 +37,10 @@ class User(AbstractUser):
     
     # Email verification
     email_verified = models.BooleanField(default=False)
-    email_verification_token = models.UUIDField(
-        default=uuid.uuid4,
-        editable=False,
-        help_text=_('Token for email verification')
+    email_verification_token = models.CharField(
+        max_length=6,
+        blank=True,
+        help_text=_('Code for email verification')
     )
     
     # Google OAuth fields

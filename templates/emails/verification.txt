@@ -1,0 +1,16 @@
+Hi {{ user.first_name }},
+
+Thank you for registering with {{ domain }}!
+
+Please verify your email address by entering this verification code in our app:
+
+==========================================
+    VERIFICATION CODE: {{ verification_code }}
+==========================================
+
+⏰ This code will expire in 15 minutes.
+
+If you didn't create an account with us, please ignore this email.
+
+Best regards,
+{{ domain }} Team

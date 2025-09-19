@@ -12,6 +12,8 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from ads.models import Ad
 import logging
+import random
+import string
 
 from .models import User
 from .serializers import (
@@ -25,6 +27,9 @@ from core.utils import get_client_ip
 
 logger = logging.getLogger(__name__)
 
+import random
+import string
+
 class RegisterView(generics.CreateAPIView):
     """User registration endpoint."""
     queryset = User.objects.all()
@@ -37,11 +42,16 @@ class RegisterView(generics.CreateAPIView):
         
         user = serializer.save()
         
+        # Generate 6-digit verification code
+        verification_code = ''.join(random.choices(string.digits, k=6))
+        user.email_verification_token = verification_code
+        user.save(update_fields=['email_verification_token'])
+        
         # Generate tokens
         refresh = RefreshToken.for_user(user)
         
         # Send verification email
-        self.send_verification_email(user, request)
+        self.send_verification_email(user, request, verification_code)
         
         return Response({
             'user': UserSerializer(user).data,
@@ -49,11 +59,11 @@ class RegisterView(generics.CreateAPIView):
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
             },
-            'message': 'Registration successful. Please check your email to verify your account.'
+            'message': 'Registration successful. Please check your email for verification code.'
         }, status=status.HTTP_201_CREATED)
     
-    def send_verification_email(self, user, request):
-        """Send email verification link."""
+    def send_verification_email(self, user, request, verification_code):
+        """Send email verification code."""
         try:
             state_code = getattr(request, 'state_code', 'IL')
             
@@ -61,15 +71,13 @@ class RegisterView(generics.CreateAPIView):
             domain_mapping = {v: k for k, v in settings.STATE_DOMAIN_MAPPING.items()}
             domain = domain_mapping.get(state_code, 'desiloginil.com')
             
-            verification_url = f"http://{domain}/verify-email/{user.email_verification_token}"
-            
             context = {
                 'user': user,
-                'verification_url': verification_url,
+                'verification_code': verification_code,
                 'domain': domain,
             }
             
-            subject = f'Verify your email address'
+            subject = f'Your verification code for {domain}'
             message = render_to_string('emails/verification.txt', context)
             html_message = render_to_string('emails/verification.html', context)
             
@@ -82,9 +90,81 @@ class RegisterView(generics.CreateAPIView):
                 fail_silently=False,
             )
             
-            logger.info(f"Verification email sent to {user.email}")
+            logger.info(f"Verification code sent to {user.email}")
         except Exception as e:
             logger.error(f"Failed to send verification email: {str(e)}")
+
+class EmailVerificationView(generics.UpdateAPIView):
+    """Email verification endpoint using code."""
+    permission_classes = [AllowAny]
+    
+    def update(self, request, *args, **kwargs):
+        # Get code from URL parameter or request data
+        code = kwargs.get('token') or request.data.get('code')
+        
+        if not code:
+            return Response(
+                {'error': 'Verification code is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email_verification_token=code)
+            
+            if user.email_verified:
+                return Response({
+                    'message': 'Email already verified.'
+                })
+            
+            user.email_verified = True
+            user.email_verification_token = ''  # Clear the code after verification
+            user.save(update_fields=['email_verified', 'email_verification_token'])
+            
+            logger.info(f"Email verified for user {user.email}")
+            
+            return Response({
+                'message': 'Email verified successfully. You can now log in.'
+            })
+            
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Invalid verification code'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+class ResendVerificationView(generics.CreateAPIView):
+    """Resend email verification code."""
+    permission_classes = [AllowAny]
+    
+    def create(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        if not email:
+            return Response(
+                {'error': 'Email is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email, email_verified=False)
+            
+            # Generate new 6-digit verification code
+            verification_code = ''.join(random.choices(string.digits, k=6))
+            user.email_verification_token = verification_code
+            user.save(update_fields=['email_verification_token'])
+            
+            # Send verification email
+            RegisterView().send_verification_email(user, request, verification_code)
+            
+            return Response({
+                'message': 'New verification code sent successfully.'
+            })
+            
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found or already verified'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
 
 class LoginView(generics.CreateAPIView):
     """User login endpoint."""
@@ -180,36 +260,6 @@ class GoogleLoginView(generics.CreateAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-class EmailVerificationView(generics.UpdateAPIView):
-    """Email verification endpoint."""
-    serializer_class = EmailVerificationSerializer
-    permission_classes = [AllowAny]
-    
-    def update(self, request, *args, **kwargs):
-        token = kwargs.get('token')
-        
-        try:
-            user = User.objects.get(email_verification_token=token)
-            
-            if user.email_verified:
-                return Response({
-                    'message': 'Email already verified.'
-                })
-            
-            user.email_verified = True
-            user.save(update_fields=['email_verified'])
-            
-            logger.info(f"Email verified for user {user.email}")
-            
-            return Response({
-                'message': 'Email verified successfully. You can now log in.'
-            })
-            
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'Invalid verification token'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     """User profile endpoint."""
