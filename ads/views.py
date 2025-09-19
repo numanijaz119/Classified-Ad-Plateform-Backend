@@ -88,20 +88,23 @@ class AdDetailView(generics.RetrieveAPIView):
         except Exception:
             # Duplicate view or other error - ignore
             pass
-
+    
 class UserAdListView(generics.ListAPIView):
-    """List current user's ads."""
+    """Get current user's ads with all statuses."""
     
     serializer_class = UserAdSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['created_at', 'status', 'expires_at']
+    ordering_fields = ['created_at', 'status', 'view_count']
     ordering = ['-created_at']
     
     def get_queryset(self):
+        # Show all user's ads including pending and rejected
         return Ad.objects.filter(
             user=self.request.user
-        ).select_related('category', 'city', 'state').prefetch_related('images')
+        ).exclude(status='deleted').select_related(
+            'category', 'city', 'state'
+        ).prefetch_related('images')
 
 class AdSearchView(generics.ListAPIView):
     """Advanced search endpoint for ads."""
@@ -145,3 +148,60 @@ class FeaturedAdListView(generics.ListAPIView):
         queryset = queryset.filter(state__code=state_code)
         
         return queryset.order_by('-created_at')
+    
+
+from rest_framework.decorators import action
+
+class AdUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
+    """Update or delete user's own ad."""
+    
+    serializer_class = AdCreateSerializer
+    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
+    lookup_field = 'slug'
+    
+    def get_queryset(self):
+        # Only allow users to edit/delete their own ads
+        return Ad.objects.filter(user=self.request.user)
+    
+    def perform_update(self, serializer):
+        # Reset approval status when ad is updated
+        serializer.save(
+            status='pending',
+            approved_at=None,
+            approved_by=None
+        )
+    
+    def destroy(self, request, *args, **kwargs):
+        ad = self.get_object()
+        
+        # Check if user owns the ad
+        if ad.user != request.user:
+            return Response(
+                {'error': 'You can only delete your own ads'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Soft delete - just mark as deleted instead of actually deleting
+        ad.status = 'deleted'
+        ad.save(update_fields=['status'])
+        
+        return Response({
+            'message': 'Ad deleted successfully'
+        }, status=status.HTTP_200_OK)
+
+class UserAdListView(generics.ListAPIView):
+    """Get current user's ads with all statuses."""
+    
+    serializer_class = UserAdSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['created_at', 'status', 'view_count']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        # Show all user's ads including pending and rejected
+        return Ad.objects.filter(
+            user=self.request.user
+        ).exclude(status='deleted').select_related(
+            'category', 'city', 'state'
+        ).prefetch_related('images')

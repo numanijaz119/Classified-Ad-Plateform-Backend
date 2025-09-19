@@ -10,6 +10,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from ads.models import Ad
 import logging
 
 from .models import User
@@ -121,12 +122,13 @@ class GoogleLoginView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        token = serializer.validated_data['access_token']
+        # Changed from access_token to id_token (correct terminology)
+        id_token_value = serializer.validated_data['id_token']
         
         try:
-            # Verify Google token
+            # Verify Google id_token (this was always verifying an ID token anyway)
             idinfo = id_token.verify_oauth2_token(
-                token, 
+                id_token_value,  # This is actually an ID token, not access token
                 google_requests.Request(), 
                 settings.GOOGLE_CLIENT_ID
             )
@@ -217,3 +219,60 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+
+
+class UserAccountDeleteView(generics.DestroyAPIView):
+    """Delete user account endpoint."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        
+        # Optional: Add password confirmation
+        password = request.data.get('password')
+        if password and not user.check_password(password):
+            return Response(
+                {'error': 'Invalid password confirmation'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Instead of hard delete, mark as inactive and clear personal data
+        user.is_active = False
+        user.email = f"deleted_user_{user.id}@deleted.com"
+        user.first_name = "Deleted"
+        user.last_name = "User"
+        user.phone = ""
+        user.avatar = None
+        user.save()
+        
+        # Also mark all user's ads as deleted
+        Ad.objects.filter(user=user).update(status='deleted')
+        
+        return Response({
+            'message': 'Account deleted successfully'
+        }, status=status.HTTP_200_OK)
+
+class UserProfileUpdateView(generics.UpdateAPIView):
+    """Update user profile with file upload support."""
+    
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'user': serializer.data,
+            'message': 'Profile updated successfully'
+        })

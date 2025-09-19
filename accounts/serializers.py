@@ -99,7 +99,7 @@ class UserLoginSerializer(serializers.Serializer):
 
 class GoogleLoginSerializer(serializers.Serializer):
     """Serializer for Google OAuth login."""
-    access_token = serializers.CharField()
+    id_token = serializers.CharField()
 
 class UserSerializer(serializers.ModelSerializer):
     """Basic user serializer for responses."""

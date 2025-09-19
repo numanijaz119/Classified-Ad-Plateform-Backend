@@ -6,6 +6,8 @@ from .views import (
     GoogleLoginView,
     EmailVerificationView,
     UserProfileView,
+    UserAccountDeleteView,
+    UserProfileUpdateView,
 )
 
 urlpatterns = [
@@ -14,5 +16,7 @@ urlpatterns = [
     path('google-login/', GoogleLoginView.as_view(), name='google_login'),
     path('verify-email/<uuid:token>/', EmailVerificationView.as_view(), name='verify_email'),
     path('profile/', UserProfileView.as_view(), name='profile'),
+    path('profile/update/', UserProfileUpdateView.as_view(), name='profile_update'),
+    path('delete-account/', UserAccountDeleteView.as_view(), name='delete_account'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
