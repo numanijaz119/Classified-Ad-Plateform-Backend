@@ -1,7 +1,9 @@
 import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from datetime import timedelta
 from .managers import UserManager
 
 class User(AbstractUser):
@@ -16,7 +18,7 @@ class User(AbstractUser):
         error_messages={
             'unique': _("A user with that username already exists."),
         },
-        blank=True,  # Make username optional
+        blank=True,
         null=True,
     )
     email = models.EmailField(_('email address'), unique=True)
@@ -32,15 +34,29 @@ class User(AbstractUser):
         help_text=_('Profile picture')
     )
     
-    # Location fields - will be set via foreign keys to locations app
-    # primary_city and primary_state will be added as foreign keys later
-    
     # Email verification
     email_verified = models.BooleanField(default=False)
     email_verification_token = models.CharField(
         max_length=6,
         blank=True,
-        help_text=_('Code for email verification')
+        help_text=_('6-digit code for email verification')
+    )
+    email_verification_expires = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_('When the email verification code expires')
+    )
+    
+    # Password reset
+    password_reset_token = models.CharField(
+        max_length=6,
+        blank=True,
+        help_text=_('6-digit code for password reset')
+    )
+    password_reset_expires = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_('When the password reset code expires')
     )
     
     # Google OAuth fields
@@ -79,6 +95,8 @@ class User(AbstractUser):
             models.Index(fields=['email']),
             models.Index(fields=['google_id']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['email_verification_token']),
+            models.Index(fields=['password_reset_token']),
         ]
     
     def __str__(self):
@@ -93,15 +111,34 @@ class User(AbstractUser):
         """Return the short name for the user."""
         return self.first_name
     
-    def save(self, *args, **kwargs):
-        # Generate username from email if not provided
-        if not self.username:
-            self.username = self.email.split('@')[0]
-            # Ensure username uniqueness
-            original_username = self.username
-            counter = 1
-            while User.objects.filter(username=self.username).exists():
-                self.username = f"{original_username}{counter}"
-                counter += 1
+    def is_email_verification_valid(self):
+        """Check if email verification token is still valid."""
+        if not self.email_verification_token or not self.email_verification_expires:
+            return False
+        return timezone.now() < self.email_verification_expires
+    
+    def is_password_reset_valid(self):
+        """Check if password reset token is still valid."""
+        if not self.password_reset_token or not self.password_reset_expires:
+            return False
+        return timezone.now() < self.password_reset_expires
+    
+    def clear_email_verification(self):
+        """Clear email verification token and expiry."""
+        self.email_verification_token = ''
+        self.email_verification_expires = None
         
-        super().save(*args, **kwargs)
+    def clear_password_reset(self):
+        """Clear password reset token and expiry."""
+        self.password_reset_token = ''
+        self.password_reset_expires = None
+    
+    def set_email_verification_code(self, code, expires_in_minutes=15):
+        """Set email verification code with expiry."""
+        self.email_verification_token = code
+        self.email_verification_expires = timezone.now() + timedelta(minutes=expires_in_minutes)
+    
+    def set_password_reset_code(self, code, expires_in_minutes=15):
+        """Set password reset code with expiry."""
+        self.password_reset_token = code
+        self.password_reset_expires = timezone.now() + timedelta(minutes=expires_in_minutes)
