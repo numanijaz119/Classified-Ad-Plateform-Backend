@@ -1,7 +1,7 @@
 # ads/views.py
 from rest_framework import generics, status, filters
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django.shortcuts import get_object_or_404
@@ -11,6 +11,7 @@ from django.db.models.functions import TruncDate, TruncMonth
 from django_filters.rest_framework import DjangoFilterBackend
 from datetime import timedelta, datetime
 import logging
+from core.simple_mixins import StateAwareViewMixin
 
 from .models import Ad, AdImage, AdView, AdContact, AdFavorite, AdReport
 from .serializers import (
@@ -23,24 +24,17 @@ from .serializers import (
     AdFavoriteSerializer,
     AdReportSerializer,
     AdPromoteSerializer,
-    AdminAdSerializer,
-    AdminAdActionSerializer,
     DashboardStatsSerializer,
-    CategoryStatsSerializer,
-    LocationStatsSerializer,
-    RevenueStatsSerializer,
-    PopularAdsSerializer,
-    UserActivitySerializer,
     AdImageSerializer
 )
-from .filters import PublicAdFilter, AdminAdFilter, UserAdFilter
+from .filters import PublicAdFilter, UserAdFilter
 from core.permissions import IsOwnerOrReadOnly
 from core.utils import get_client_ip, detect_device_type
 
 logger = logging.getLogger(__name__)
 
-class AdViewSet(ModelViewSet):
-    """Main ViewSet for Ad operations with simplified public filtering."""
+class AdViewSet(StateAwareViewMixin, ModelViewSet):
+    """Main ViewSet for Ad operations with state-aware filtering and search."""
     
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description']
@@ -49,10 +43,14 @@ class AdViewSet(ModelViewSet):
     ordering_fields = ['created_at', 'title']
     ordering = ['-created_at']  # Default: newest first
     
+    # State filtering configuration
+    state_field_path = 'state__code'
+    allow_cross_state = True  # Allow cross-state search when requested
+    
     def get_queryset(self):
-        """Get queryset based on action and user."""
+        """Get queryset based on action and user with state filtering."""
         if self.action == 'my_ads':
-            # User's own ads (all statuses except deleted)
+            # User's own ads (all statuses except deleted) - no state filtering for user's own ads
             return Ad.objects.filter(
                 user=self.request.user
             ).exclude(status='deleted').select_related(
@@ -60,16 +58,12 @@ class AdViewSet(ModelViewSet):
             ).prefetch_related('images')
         
         elif self.action in ['list', 'search', 'featured']:
-            # Public listing - only approved, non-expired ads
+            # Public listing - only approved, non-expired ads with state filtering
             queryset = Ad.objects.active().select_related(
                 'category', 'city', 'state', 'user'
             ).prefetch_related('images')
             
-            # Filter by current state if not explicitly specified
-            if not self.request.query_params.get('state'):
-                state_code = getattr(self.request, 'state_code', 'IL')
-                queryset = queryset.filter(state__code__iexact=state_code)
-            
+            # State filtering is now handled by StateAwareSearchViewMixin
             # Featured ads first for list view, then by date
             if self.action == 'list':
                 queryset = queryset.order_by('-plan', '-created_at')
@@ -222,9 +216,13 @@ class AdViewSet(ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def search(self, request):
-        """Advanced search with simplified filters."""
+        """Advanced search with state-aware filtering and cross-state capabilities."""
         queryset = self.filter_queryset(self.get_queryset())
         
+        # Add state aggregation for cross-state searches
+        if request.query_params.get('all_states') == 'true':
+            state_breakdown = self.add_state_aggregation(queryset)
+            
         # Handle sorting for search results
         sort_by = request.query_params.get('sort_by', 'relevance')
         
@@ -243,10 +241,25 @@ class AdViewSet(ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response_data = self.get_paginated_response(serializer.data).data
+            
+            # Add state breakdown for cross-state searches
+            if request.query_params.get('all_states') == 'true':
+                response_data['state_breakdown'] = state_breakdown
+            
+            return Response(response_data)
         
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        response_data = serializer.data
+        
+        # Add state breakdown for cross-state searches
+        if request.query_params.get('all_states') == 'true':
+            response_data = {
+                'results': response_data,
+                'state_breakdown': state_breakdown
+            }
+        
+        return Response(response_data)
     
     @action(detail=False, methods=['get'])
     def featured(self, request):
@@ -516,132 +529,4 @@ class DashboardAnalyticsView(generics.GenericAPIView):
         serializer = DashboardStatsSerializer(data)
         return Response(serializer.data)
 
-# Admin Views with Advanced Filtering
-class AdminAdManagementView(generics.ListAPIView):
-    """Admin view for managing all ads with advanced filtering."""
-    
-    serializer_class = AdminAdSerializer
-    permission_classes = [IsAdminUser]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = AdminAdFilter  # Use advanced admin filter
-    search_fields = ['title', 'description', 'user__email']
-    ordering_fields = ['created_at', 'status', 'view_count', 'plan']
-    ordering = ['-created_at']
-    
-    def get_queryset(self):
-        """Get all ads for admin review."""
-        return Ad.objects.exclude(status='deleted').select_related(
-            'user', 'category', 'city', 'state'
-        ).prefetch_related('images', 'reports')
-
-class AdminAnalyticsView(generics.GenericAPIView):
-    """Admin analytics with comprehensive statistics."""
-    
-    permission_classes = [IsAdminUser]
-    
-    def get(self, request):
-        """Get comprehensive admin analytics."""
-        # Get date range
-        days = int(request.query_params.get('days', 30))
-        since = timezone.now() - timedelta(days=days)
-        
-        # Category statistics
-        category_stats = Ad.objects.filter(
-            status='approved',
-            created_at__gte=since
-        ).values(
-            'category__name', 'category__id'
-        ).annotate(
-            ads_count=Count('id')
-        ).order_by('-ads_count')[:10]
-        
-        # Location statistics
-        location_stats = Ad.objects.filter(
-            status='approved',
-            created_at__gte=since
-        ).values(
-            'city__name', 'state__name'
-        ).annotate(
-            ads_count=Count('id')
-        ).order_by('-ads_count')[:10]
-        
-        # Revenue statistics (monthly)
-        revenue_stats = Ad.objects.filter(
-            plan='featured',
-            created_at__gte=timezone.now() - timedelta(days=365)
-        ).annotate(
-            month=TruncMonth('created_at')
-        ).values('month').annotate(
-            revenue=Count('id') * 9.99,
-            featured_ads_count=Count('id'),
-            average_price=Avg('price')
-        ).order_by('-month')[:12]
-        
-        # Popular ads
-        popular_ads = Ad.objects.filter(
-            status='approved',
-            created_at__gte=since
-        ).annotate(
-            conversion_rate=F('contact_count') * 100.0 / F('view_count')
-        ).order_by('-view_count')[:10]
-        
-        # User activity
-        user_activity = AdView.objects.filter(
-            viewed_at__gte=since
-        ).annotate(
-            date=TruncDate('viewed_at')
-        ).values('date').annotate(
-            total_views=Count('id'),
-            unique_users=Count('user', distinct=True)
-        ).order_by('date')
-        
-        return Response({
-            'category_stats': CategoryStatsSerializer(category_stats, many=True).data,
-            'location_stats': LocationStatsSerializer(location_stats, many=True).data,
-            'revenue_stats': RevenueStatsSerializer(revenue_stats, many=True).data,
-            'popular_ads': PopularAdsSerializer(popular_ads, many=True).data,
-            'user_activity': UserActivitySerializer(user_activity, many=True).data,
-        })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_ad_action(request, ad_id):
-    """Perform admin actions on ads."""
-    try:
-        ad = Ad.objects.get(id=ad_id)
-    except Ad.DoesNotExist:
-        return Response(
-            {'error': 'Ad not found'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
-    
-    serializer = AdminAdActionSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    
-    action = serializer.validated_data['action']
-    reason = serializer.validated_data.get('reason', '')
-    admin_notes = serializer.validated_data.get('admin_notes', '')
-    
-    if action == 'approve':
-        ad.status = 'approved'
-        ad.approved_at = timezone.now()
-        ad.approved_by = request.user
-        ad.rejection_reason = ''
-        
-    elif action == 'reject':
-        ad.status = 'rejected'
-        ad.rejection_reason = reason
-        ad.approved_at = None
-        ad.approved_by = None
-        
-    elif action == 'delete':
-        ad.status = 'deleted'
-        ad.admin_notes = admin_notes
-    
-    ad.admin_notes = admin_notes
-    ad.save()
-    
-    return Response({
-        'message': f'Ad {action}d successfully',
-        'ad_status': ad.status
-    })
+# End of ads views - admin functionality moved to admin app

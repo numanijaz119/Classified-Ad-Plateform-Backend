@@ -1,24 +1,39 @@
-from django.conf import settings
-from django.utils.deprecation import MiddlewareMixin
 import logging
+from django.conf import settings
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
-class StateMiddleware(MiddlewareMixin):
+class StateMiddleware:
     """
-    Middleware to determine the current state based on the domain.
-    Sets request.state_code for use throughout the application.
+    Middleware to detect the current state based on the domain.
+    Uses caching to avoid repeated domain-to-state lookups.
+    Sets request.state_code for use in views and templates.
     """
     
-    def process_request(self, request):
-        host = request.get_host().split(':')[0]  # Remove port if present
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Get the domain from the request
+        domain = request.get_host().lower()
         
-        # Get state code from domain mapping
-        state_code = settings.STATE_DOMAIN_MAPPING.get(host, 'IL')
+        # Try to get state code from cache first
+        cache_key = f'domain_state_{domain}'
+        state_code = cache.get(cache_key)
         
-        # Set state info on request
+        if state_code is None:
+            # Cache miss - look up state code from domain mapping
+            state_code = getattr(settings, 'STATE_DOMAIN_MAPPING', {}).get(domain, 'IL')
+            
+            # Cache for 1 hour (domains don't change often)
+            cache.set(cache_key, state_code, 3600)
+            logger.debug(f"Domain: {domain} -> State: {state_code} (cached)")
+        else:
+            logger.debug(f"Domain: {domain} -> State: {state_code} (from cache)")
+        
+        # Set the state code on the request for use in views
         request.state_code = state_code
         
-        logger.debug(f"StateMiddleware: Host {host} -> State {state_code}")
-        
-        return None
+        response = self.get_response(request)
+        return response

@@ -3,13 +3,24 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     AdViewSet,
-    AdImageViewSet,
+    AdImageViewSet, 
     AdFavoriteViewSet,
     AdReportViewSet,
-    DashboardAnalyticsView,
+    # Admin Views
+    AdminDashboardView,
+    AdminAdListView,
+    AdminAdDetailView,
+    AdminAdActionView,
     AdminAnalyticsView,
-    AdminAdManagementView,
-    admin_ad_action,
+    AdminUserActivityView,
+    AdminRevenueView,
+)
+from .admin_views import (
+    AdminStateAnalyticsView,
+    admin_state_analytics_api,
+    admin_states_comparison,
+    admin_state_performance_trends,
+    admin_bulk_state_actions,
 )
 
 # Create router for ViewSets
@@ -28,6 +39,14 @@ urlpatterns = [
     path('admin/analytics/', AdminAnalyticsView.as_view(), name='admin-analytics'),
     path('admin/ads/', AdminAdManagementView.as_view(), name='admin-ads'),
     path('admin/ads/<int:ad_id>/action/', admin_ad_action, name='admin-ad-action'),
+    
+    # State-specific admin endpoints
+    path('admin/state-dashboard/', AdminStateAnalyticsView().state_dashboard, name='admin-state-dashboard'),
+    path('admin/state-dashboard/<str:state_code>/', AdminStateAnalyticsView().state_dashboard, name='admin-state-dashboard-specific'),
+    path('admin/api/state-analytics/<str:state_code>/', admin_state_analytics_api, name='admin-state-analytics-api'),
+    path('admin/api/states-comparison/', admin_states_comparison, name='admin-states-comparison'),
+    path('admin/api/state-trends/<str:state_code>/', admin_state_performance_trends, name='admin-state-trends'),
+    path('admin/api/bulk-state-actions/', admin_bulk_state_actions, name='admin-bulk-state-actions'),
 ]
 
 """
