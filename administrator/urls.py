@@ -1,4 +1,4 @@
-# admin/urls.py
+# administrator/urls.py
 from django.urls import path
 from . import views
 

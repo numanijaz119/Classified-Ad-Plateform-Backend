@@ -42,7 +42,7 @@ LOCAL_APPS = [
     'accounts',
     'content',
     'ads',
-    'admin',
+    'administrator',
     'core',
 ]
 
