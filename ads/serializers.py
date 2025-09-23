@@ -283,46 +283,6 @@ class AdPromoteSerializer(serializers.Serializer):
             )
         return value
 
-class AdminAdSerializer(serializers.ModelSerializer):
-    """Serializer for admin ad management."""
-    
-    user = UserPublicSerializer(read_only=True)
-    category = CategorySimpleSerializer(read_only=True)
-    city = CitySimpleSerializer(read_only=True)
-    state = StateSimpleSerializer(read_only=True)
-    primary_image = AdImageSerializer(read_only=True)
-    display_price = serializers.CharField(read_only=True)
-    time_since_posted = serializers.CharField(read_only=True)
-    reports_count = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Ad
-        fields = [
-            'id', 'slug', 'title', 'description', 'display_price', 'user',
-            'category', 'city', 'state', 'status', 'plan', 'view_count',
-            'contact_count', 'primary_image', 'time_since_posted',
-            'reports_count', 'admin_notes', 'rejection_reason',
-            'created_at', 'approved_at', 'expires_at'
-        ]
-    
-    def get_reports_count(self, obj):
-        """Get count of reports for this ad."""
-        return obj.reports.count()
-
-class AdminAdActionSerializer(serializers.Serializer):
-    """Serializer for admin actions on ads."""
-    
-    action = serializers.ChoiceField(choices=['approve', 'reject', 'delete'])
-    reason = serializers.CharField(max_length=500, required=False)
-    admin_notes = serializers.CharField(max_length=1000, required=False)
-    
-    def validate(self, data):
-        """Validate admin action data."""
-        if data['action'] == 'reject' and not data.get('reason'):
-            raise serializers.ValidationError(
-                "Reason is required when rejecting an ad."
-            )
-        return data
 
 class DashboardStatsSerializer(serializers.Serializer):
     """Serializer for dashboard statistics."""

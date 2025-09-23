@@ -6,21 +6,7 @@ from .views import (
     AdImageViewSet, 
     AdFavoriteViewSet,
     AdReportViewSet,
-    # Admin Views
-    AdminDashboardView,
-    AdminAdListView,
-    AdminAdDetailView,
-    AdminAdActionView,
-    AdminAnalyticsView,
-    AdminUserActivityView,
-    AdminRevenueView,
-)
-from .admin_views import (
-    AdminStateAnalyticsView,
-    admin_state_analytics_api,
-    admin_states_comparison,
-    admin_state_performance_trends,
-    admin_bulk_state_actions,
+    DashboardAnalyticsView,
 )
 
 # Create router for ViewSets
@@ -34,25 +20,14 @@ urlpatterns = [
     # Include router URLs
     path('', include(router.urls)),
     
-    # Analytics endpoints
+    # User analytics endpoints
     path('dashboard/analytics/', DashboardAnalyticsView.as_view(), name='dashboard-analytics'),
-    path('admin/analytics/', AdminAnalyticsView.as_view(), name='admin-analytics'),
-    path('admin/ads/', AdminAdManagementView.as_view(), name='admin-ads'),
-    path('admin/ads/<int:ad_id>/action/', admin_ad_action, name='admin-ad-action'),
-    
-    # State-specific admin endpoints
-    path('admin/state-dashboard/', AdminStateAnalyticsView().state_dashboard, name='admin-state-dashboard'),
-    path('admin/state-dashboard/<str:state_code>/', AdminStateAnalyticsView().state_dashboard, name='admin-state-dashboard-specific'),
-    path('admin/api/state-analytics/<str:state_code>/', admin_state_analytics_api, name='admin-state-analytics-api'),
-    path('admin/api/states-comparison/', admin_states_comparison, name='admin-states-comparison'),
-    path('admin/api/state-trends/<str:state_code>/', admin_state_performance_trends, name='admin-state-trends'),
-    path('admin/api/bulk-state-actions/', admin_bulk_state_actions, name='admin-bulk-state-actions'),
 ]
 
 """
-SIMPLIFIED API ENDPOINTS:
+USER API ENDPOINTS:
 
-USER ENDPOINTS:
+CORE AD OPERATIONS:
 GET /api/ads/ads/ - List ads
   Filters: ?category=1&city=2&price_min=100&price_max=500
   Sort: ?sort_by=newest|oldest|alphabetical|price_low|price_high
@@ -89,14 +64,8 @@ DELETE /api/ads/favorites/remove/ - Remove favorite
 REPORTS:
 GET/POST /api/ads/reports/ - Report ads
 
-ANALYTICS:
+USER ANALYTICS:
 GET /api/ads/dashboard/analytics/ - User dashboard stats
 
-ADMIN ENDPOINTS (Advanced Filtering):
-GET /api/ads/admin/ads/ - All ads with advanced filters
-  Advanced filters: status, plan, user, has_images, has_phone, 
-  is_featured, has_reports, posted_since, search, etc.
-  
-GET /api/ads/admin/analytics/ - Admin analytics
-POST /api/ads/admin/ads/{id}/action/ - Admin actions
+Note: All admin endpoints are now in /api/admin/* (see admin app)
 """
