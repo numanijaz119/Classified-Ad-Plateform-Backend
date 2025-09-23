@@ -29,6 +29,7 @@ from .serializers import (
     ChangePasswordSerializer
 )
 from core.utils import get_client_ip
+from core.email_utils import send_verification_email, send_password_reset_email, send_welcome_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,12 @@ class RegisterView(generics.CreateAPIView):
         refresh = RefreshToken.for_user(user)
         
         # Send verification email
-        self.send_verification_email(user, request, verification_code)
+        try:
+            send_verification_email(user, request, verification_code)
+            logger.info(f"Verification email sent to {user.email}")
+        except Exception as e:
+            logger.error(f"Failed to send verification email to {user.email}: {str(e)}")
+            # Don't fail registration if email fails
         
         return Response({
             'user': UserSerializer(user).data,
@@ -64,38 +70,6 @@ class RegisterView(generics.CreateAPIView):
             'message': 'Registration successful. Please check your email for verification code.'
         }, status=status.HTTP_201_CREATED)
     
-    def send_verification_email(self, user, request, verification_code):
-        """Send email verification code."""
-        try:
-            state_code = getattr(request, 'state_code', 'IL')
-            
-            # Get domain from state mapping
-            domain_mapping = {v: k for k, v in settings.STATE_DOMAIN_MAPPING.items()}
-            domain = domain_mapping.get(state_code, 'desiloginil.com')
-            
-            context = {
-                'user': user,
-                'verification_code': verification_code,
-                'domain': domain,
-                'expires_in': 15,  # 15 minutes
-            }
-            
-            subject = f'Your verification code for {domain}'
-            message = render_to_string('emails/verification.txt', context)
-            html_message = render_to_string('emails/verification.html', context)
-            
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                html_message=html_message,
-                fail_silently=False,
-            )
-            
-            logger.info(f"Verification code sent to {user.email}")
-        except Exception as e:
-            logger.error(f"Failed to send verification email: {str(e)}")
 
 class EmailVerificationView(generics.CreateAPIView):
     """Email verification endpoint using code."""
@@ -155,7 +129,15 @@ class ResendVerificationView(generics.CreateAPIView):
             user.save(update_fields=['email_verification_token', 'email_verification_expires'])
             
             # Send verification email
-            RegisterView().send_verification_email(user, request, verification_code)
+            try:
+                send_verification_email(user, request, verification_code)
+                logger.info(f"Resend verification email sent to {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to resend verification email to {user.email}: {str(e)}")
+                return Response(
+                    {'error': 'Failed to send verification email. Please try again later.'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
             
             return Response({
                 'message': 'New verification code sent successfully.'
@@ -315,7 +297,12 @@ class ForgotPasswordView(generics.CreateAPIView):
             user.save(update_fields=['password_reset_token', 'password_reset_expires'])
             
             # Send reset email
-            self.send_password_reset_email(user, request, reset_code)
+            try:
+                send_password_reset_email(user, request, reset_code)
+                logger.info(f"Password reset email sent to {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to send password reset email to {user.email}: {str(e)}")
+                # Don't reveal if user exists or not for security
             
             return Response({
                 'message': 'Password reset code sent to your email.'
@@ -327,38 +314,6 @@ class ForgotPasswordView(generics.CreateAPIView):
                 'message': 'Password reset code sent to your email.'
             })
     
-    def send_password_reset_email(self, user, request, reset_code):
-        """Send password reset code via email."""
-        try:
-            state_code = getattr(request, 'state_code', 'IL')
-            
-            # Get domain from state mapping
-            domain_mapping = {v: k for k, v in settings.STATE_DOMAIN_MAPPING.items()}
-            domain = domain_mapping.get(state_code, 'desiloginil.com')
-            
-            context = {
-                'user': user,
-                'reset_code': reset_code,
-                'domain': domain,
-                'expires_in': 15,  # 15 minutes
-            }
-            
-            subject = f'Password Reset Code for {domain}'
-            message = render_to_string('emails/password_reset.txt', context)
-            html_message = render_to_string('emails/password_reset.html', context)
-            
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                html_message=html_message,
-                fail_silently=False,
-            )
-            
-            logger.info(f"Password reset code sent to {user.email}")
-        except Exception as e:
-            logger.error(f"Failed to send password reset email: {str(e)}")
 
 class ResetPasswordView(generics.CreateAPIView):
     """Reset password using code endpoint."""

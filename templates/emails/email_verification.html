@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Verification - {{ domain }}</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f4;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: linear-gradient(135deg, #10b981, #3b82f6);
+        color: white;
+        text-align: center;
+        padding: 30px;
+        border-radius: 10px 10px 0 0;
+        margin: -20px -20px 20px -20px;
+      }
+      .code {
+        background-color: #f0f9ff;
+        border: 2px dashed #3b82f6;
+        padding: 20px;
+        text-align: center;
+        margin: 20px 0;
+        border-radius: 8px;
+      }
+      .code-number {
+        font-size: 32px;
+        font-weight: bold;
+        color: #1d4ed8;
+        letter-spacing: 5px;
+        font-family: "Courier New", monospace;
+      }
+      .footer {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+        font-size: 14px;
+        color: #666;
+      }
+      .info {
+        background-color: #dbeafe;
+        border: 1px solid #93c5fd;
+        color: #1e40af;
+        padding: 15px;
+        border-radius: 6px;
+        margin: 15px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Welcome to {{ domain }}!</h1>
+        <p>Verify Your Email Address</p>
+      </div>
+
+      <h2>Hello {{ user.first_name }}!</h2>
+
+      <p>
+        Thank you for registering with {{ domain }}. To complete your registration,
+        please verify your email address using the code below:
+      </p>
+
+      <div class="code">
+        <p><strong>Your Verification Code:</strong></p>
+        <div class="code-number">{{ verification_code }}</div>
+        <p><small>This code will expire in {{ expires_in }} minutes</small></p>
+      </div>
+
+      <div class="info">
+        <strong>Next Steps:</strong> Once verified, you'll be able to post ads,
+        browse listings, and connect with other users on {{ domain }}.
+      </div>
+
+      <p>
+        If you didn't create an account with us, please ignore this email.
+      </p>
+
+      <div class="footer">
+        <p>Best regards,<br />{{ domain }} Team</p>
+        <p>
+          <small
+            >This is an automated email. Please do not reply to this
+            message.</small
+          >
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
