@@ -6,19 +6,63 @@ from datetime import timedelta
 from .models import Ad
 
 class PublicAdFilter(django_filters.FilterSet):
-    """Simple filter set for public/user ad listings."""
+    """Enhanced filter set for public/user ad listings with state awareness."""
     
     # Basic filters for users
     category = django_filters.NumberFilter(field_name='category__id')
     city = django_filters.NumberFilter(field_name='city__id')
+    state = django_filters.CharFilter(field_name='state__code', lookup_expr='iexact')
     
     # Price filters
     price_min = django_filters.NumberFilter(field_name='price', lookup_expr='gte')
     price_max = django_filters.NumberFilter(field_name='price', lookup_expr='lte')
+    price_type = django_filters.ChoiceFilter(
+        field_name='price_type',
+        choices=[
+            ('fixed', 'Fixed Price'),
+            ('negotiable', 'Negotiable'),
+            ('contact', 'Contact for Price'),
+            ('free', 'Free'),
+            ('swap', 'Swap/Trade'),
+        ]
+    )
+    
+    # Condition filter
+    condition = django_filters.MultipleChoiceFilter(
+        field_name='condition',
+        choices=[
+            ('new', 'New'),
+            ('like_new', 'Like New'),
+            ('good', 'Good'),
+            ('fair', 'Fair'),
+            ('poor', 'Poor'),
+            ('not_applicable', 'Not Applicable'),
+        ]
+    )
+    
+    # Date filters
+    posted_since = django_filters.NumberFilter(method='filter_posted_since')
+    
+    # Search across states (for cross-state search)
+    search_states = django_filters.CharFilter(method='filter_search_states')
     
     class Meta:
         model = Ad
-        fields = ['category', 'city', 'price_min', 'price_max']
+        fields = ['category', 'city', 'state', 'price_min', 'price_max', 'price_type', 'condition', 'posted_since', 'search_states']
+    
+    def filter_posted_since(self, queryset, name, value):
+        """Filter ads posted within specified days."""
+        if value:
+            since = timezone.now() - timedelta(days=value)
+            return queryset.filter(created_at__gte=since)
+        return queryset
+    
+    def filter_search_states(self, queryset, name, value):
+        """Filter ads by multiple states (comma-separated state codes)."""
+        if value:
+            state_codes = [s.strip().upper() for s in value.split(',')]
+            return queryset.filter(state__code__in=state_codes)
+        return queryset
 
 class AdminAdFilter(django_filters.FilterSet):
     """Advanced filter set for admin ad management."""
