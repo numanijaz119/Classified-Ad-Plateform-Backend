@@ -24,6 +24,10 @@ urlpatterns = [
     path('cities/', CityListView.as_view(), name='city_list'),
     path('cities/simple/', CitySimpleListView.as_view(), name='city_simple_list'),
     path('cities/state/<str:state_code>/', CitiesByStateView.as_view(), name='cities_by_state'),
+
+    # City autocomplete and search
+    path('cities/autocomplete/', CityAutocompleteView.as_view(), name='city_autocomplete'),
+    path('cities/search/', CitySearchView.as_view(), name='city_search'),
     
     # Categories
     path('categories/', CategoryListView.as_view(), name='category_list'),
