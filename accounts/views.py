@@ -14,7 +14,7 @@ from google.oauth2 import id_token
 import logging
 import random
 import string
-
+from rest_framework.parsers import MultiPartParser, FormParser
 from .models import User
 from .serializers import (
     UserRegistrationSerializer,
@@ -263,13 +263,71 @@ class UserProfileView(generics.RetrieveAPIView):
     def get_object(self):
         return self.request.user
 
+
 class UserProfileUpdateView(generics.UpdateAPIView):
-    """Update user profile endpoint."""
+    """Update user profile endpoint with avatar upload support."""
     serializer_class = UserProfileUpdateSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        # Handle avatar upload
+        avatar = request.FILES.get('avatar')
+        if avatar:
+            # Delete old avatar if exists
+            if instance.avatar:
+                instance.avatar.delete(save=False)
+        
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'user': UserSerializer(instance).data,
+            'message': 'Profile updated successfully.'
+        })
+
+class UserPrivacySettingsView(generics.UpdateAPIView):
+    """Update privacy settings endpoint."""
+    serializer_class = UserPrivacySettingsSerializer
     permission_classes = [IsAuthenticated]
     
     def get_object(self):
         return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'settings': serializer.data,
+            'message': 'Privacy settings updated successfully.'
+        })
+
+@api_view(['DELETE'])
+def delete_avatar(request):
+    """Delete user avatar."""
+    user = request.user
+    
+    if user.avatar:
+        user.avatar.delete(save=False)
+        user.avatar = None
+        user.save(update_fields=['avatar'])
+        return Response({'message': 'Avatar deleted successfully.'})
+    
+    return Response(
+        {'error': 'No avatar to delete.'},
+        status=status.HTTP_404_NOT_FOUND
+    )
+
 
 class ForgotPasswordView(generics.CreateAPIView):
     """Forgot password endpoint - sends reset code via email."""

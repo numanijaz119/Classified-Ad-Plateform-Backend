@@ -8,6 +8,7 @@ from content.serializers import (
     StateSimpleSerializer, 
     CategorySimpleSerializer
 )
+from accounts.serializers import UserPublicSerializer
 
 User = get_user_model()
 
@@ -29,12 +30,6 @@ class AdImageCreateSerializer(serializers.ModelSerializer):
         model = AdImage
         fields = ['image', 'caption', 'is_primary', 'sort_order']
 
-class UserPublicSerializer(serializers.ModelSerializer):
-    """Public user info for ad listings."""
-    
-    class Meta:
-        model = User
-        fields = ['id', 'first_name', 'last_name', 'email_verified']
 
 class AdListSerializer(serializers.ModelSerializer):
     """Serializer for ad listings (public view)."""
