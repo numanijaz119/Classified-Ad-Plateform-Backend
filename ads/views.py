@@ -40,6 +40,8 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
     
     # Pagination configuration
     pagination_class = SearchResultsPagination
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]s
     
     # State filtering configuration
     state_field_path = 'state__code'
