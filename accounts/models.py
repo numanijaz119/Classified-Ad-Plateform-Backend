@@ -34,6 +34,23 @@ class User(AbstractUser):
         help_text=_('Profile picture')
     )
     
+    # NEW PRIVACY SETTINGS
+    show_email = models.BooleanField(
+        _('Show Email Publicly'),
+        default=False,
+        help_text=_('Allow other users to see your email address on ads')
+    )
+    show_phone = models.BooleanField(
+        _('Show Phone Publicly'),
+        default=True,
+        help_text=_('Allow other users to see your phone number on ads')
+    )
+    email_notifications = models.BooleanField(
+        _('Email Notifications'),
+        default=True,
+        help_text=_('Receive email notifications for important updates')
+    )
+
     # Email verification
     email_verified = models.BooleanField(default=False)
     email_verification_token = models.CharField(

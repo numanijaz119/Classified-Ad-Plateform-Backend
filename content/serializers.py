@@ -52,17 +52,22 @@ class CategorySerializer(serializers.ModelSerializer):
     """Serializer for Category model."""
     
     ads_count = serializers.SerializerMethodField()
+    state_ads_count = serializers.IntegerField(read_only=True, required=False)
     
     class Meta:
         model = Category
         fields = [
             'id', 'name', 'slug', 'icon', 'description',
-            'sort_order', 'is_active', 'ads_count', 'created_at'
+            'sort_order', 'is_active', 'ads_count', 'state_ads_count', 'created_at'
         ]
-        read_only_fields = ['id', 'slug', 'ads_count', 'created_at']
+        read_only_fields = ['id', 'slug', 'ads_count', 'state_ads_count', 'created_at']
     
     def get_ads_count(self, obj):
         """Get count of active ads in this category."""
+        # If state_ads_count is available (from annotation), use it
+        if hasattr(obj, 'state_ads_count'):
+            return obj.state_ads_count
+        # Fallback to global count
         return obj.get_active_ads_count()
 
 class CategorySimpleSerializer(serializers.ModelSerializer):
@@ -71,3 +76,18 @@ class CategorySimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ['id', 'name', 'icon']
+
+class CityAutocompleteSerializer(serializers.ModelSerializer):
+    """Serializer for city autocomplete with state info."""
+    
+    state_name = serializers.CharField(source='state.name', read_only=True)
+    state_code = serializers.CharField(source='state.code', read_only=True)
+    display_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = City
+        fields = ['id', 'name', 'state_name', 'state_code', 'is_major', 'display_name']
+    
+    def get_display_name(self, obj):
+        """Return formatted display name with state."""
+        return f"{obj.name}, {obj.state.code}"

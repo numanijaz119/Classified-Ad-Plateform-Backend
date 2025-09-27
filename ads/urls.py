@@ -3,13 +3,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     AdViewSet,
-    AdImageViewSet,
+    AdImageViewSet, 
     AdFavoriteViewSet,
     AdReportViewSet,
     DashboardAnalyticsView,
-    AdminAnalyticsView,
-    AdminAdManagementView,
-    admin_ad_action,
 )
 
 # Create router for ViewSets
@@ -23,17 +20,14 @@ urlpatterns = [
     # Include router URLs
     path('', include(router.urls)),
     
-    # Analytics endpoints
+    # User analytics endpoints
     path('dashboard/analytics/', DashboardAnalyticsView.as_view(), name='dashboard-analytics'),
-    path('admin/analytics/', AdminAnalyticsView.as_view(), name='admin-analytics'),
-    path('admin/ads/', AdminAdManagementView.as_view(), name='admin-ads'),
-    path('admin/ads/<int:ad_id>/action/', admin_ad_action, name='admin-ad-action'),
 ]
 
 """
-SIMPLIFIED API ENDPOINTS:
+USER API ENDPOINTS:
 
-USER ENDPOINTS:
+CORE AD OPERATIONS:
 GET /api/ads/ads/ - List ads
   Filters: ?category=1&city=2&price_min=100&price_max=500
   Sort: ?sort_by=newest|oldest|alphabetical|price_low|price_high
@@ -70,14 +64,8 @@ DELETE /api/ads/favorites/remove/ - Remove favorite
 REPORTS:
 GET/POST /api/ads/reports/ - Report ads
 
-ANALYTICS:
+USER ANALYTICS:
 GET /api/ads/dashboard/analytics/ - User dashboard stats
 
-ADMIN ENDPOINTS (Advanced Filtering):
-GET /api/ads/admin/ads/ - All ads with advanced filters
-  Advanced filters: status, plan, user, has_images, has_phone, 
-  is_featured, has_reports, posted_since, search, etc.
-  
-GET /api/ads/admin/analytics/ - Admin analytics
-POST /api/ads/admin/ads/{id}/action/ - Admin actions
+Note: All admin endpoints are now in /api/admin/* (see admin app)
 """

@@ -9,6 +9,8 @@ from .views import (
     ResendVerificationView,
     UserProfileView,
     UserProfileUpdateView,
+    UserPrivacySettingsView,
+    delete_avatar,
     ForgotPasswordView,
     ResetPasswordView,
     ChangePasswordView,
@@ -35,6 +37,8 @@ urlpatterns = [
     path('profile/', UserProfileView.as_view(), name='profile'),
     path('profile/update/', UserProfileUpdateView.as_view(), name='profile_update'),
     path('delete-account/', UserAccountDeleteView.as_view(), name='delete_account'),
+    path('profile/privacy/', UserPrivacySettingsView.as_view(), name='privacy_settings'),
+    path('profile/avatar/delete/', delete_avatar, name='delete_avatar'),
     
     # Token management
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

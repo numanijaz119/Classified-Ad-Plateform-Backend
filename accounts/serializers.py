@@ -127,16 +127,44 @@ class UserSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'email', 'first_name', 'last_name', 'phone',
             'avatar', 'full_name', 'email_verified', 'is_active',
+            'show_email', 'show_phone', 'email_notifications',
             'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'email', 'email_verified', 'created_at', 'updated_at')
+
+
+
+class UserPublicSerializer(serializers.ModelSerializer):
+    """Public user info respecting privacy settings."""
+    full_name = serializers.CharField(source='get_full_name', read_only=True)
+    email = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'avatar', 'email', 'phone', 'email_verified']
+    
+    def get_email(self, obj):
+        """Return email only if user allows it."""
+        if obj.show_email:
+            return obj.email
+        return None
+    
+    def get_phone(self, obj):
+        """Return phone only if user allows it."""
+        if obj.show_phone:
+            return obj.phone
+        return None
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating user profile."""
     
     class Meta:
         model = User
-        fields = ('first_name', 'last_name', 'phone', 'avatar')
+        fields = (
+            'first_name', 'last_name', 'phone', 'avatar',
+            'show_email', 'show_phone', 'email_notifications'
+        )
     
     def validate_first_name(self, value):
         if not value or not value.strip():
@@ -147,6 +175,20 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         if not value or not value.strip():
             raise serializers.ValidationError("Last name is required.")
         return value.strip()
+    
+    def validate_avatar(self, value):
+        if value:
+            # Check file size (max 2MB)
+            if value.size > 2 * 1024 * 1024:
+                raise serializers.ValidationError("Avatar file size cannot exceed 2MB.")
+            
+            # Check file type
+            allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            if value.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    "Invalid file type. Allowed: JPEG, PNG, GIF, WEBP."
+                )
+        return value
 
 class EmailVerificationSerializer(serializers.Serializer):
     """Serializer for email verification."""
@@ -256,3 +298,11 @@ class ChangePasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError({"new_password": e.messages})
         
         return data
+
+
+class UserPrivacySettingsSerializer(serializers.ModelSerializer):
+    """Serializer specifically for privacy settings."""
+    
+    class Meta:
+        model = User
+        fields = ('show_email', 'show_phone', 'email_notifications')
