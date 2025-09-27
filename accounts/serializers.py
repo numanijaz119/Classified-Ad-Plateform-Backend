@@ -264,40 +264,43 @@ class ResetPasswordSerializer(serializers.Serializer):
         return data
 
 class ChangePasswordSerializer(serializers.Serializer):
-    """Serializer for changing password (authenticated users)."""
-    old_password = serializers.CharField(
-        style={'input_type': 'password'},
-        trim_whitespace=False
-    )
+    current_password = serializers.CharField(required=False)  # Optional for social users
     new_password = serializers.CharField(
-        write_only=True,
         min_length=8,
-        style={'input_type': 'password'}
+        validators=[validate_password]
     )
-    confirm_password = serializers.CharField(
-        write_only=True,
-        style={'input_type': 'password'}
-    )
+    confirm_password = serializers.CharField()
     
-    def validate_old_password(self, value):
+    def validate(self, attrs):
         user = self.context['request'].user
-        if not user.check_password(value):
-            raise serializers.ValidationError("Old password is incorrect.")
-        return value
-    
-    def validate(self, data):
-        if data['new_password'] != data['confirm_password']:
+        
+        # Check if user logged in via Google (no password set)
+        if user.google_id and not user.has_usable_password():
+            # Social login user setting password for first time
+            if attrs.get('current_password'):
+                raise serializers.ValidationError({
+                    'current_password': 'You signed up with Google. No current password needed.'
+                })
+        else:
+            # Regular user must provide current password
+            if not attrs.get('current_password'):
+                raise serializers.ValidationError({
+                    'current_password': 'Current password is required.'
+                })
+            
+            # Verify current password
+            if not user.check_password(attrs['current_password']):
+                raise serializers.ValidationError({
+                    'current_password': 'Current password is incorrect.'
+                })
+        
+        # Validate password confirmation
+        if attrs['new_password'] != attrs['confirm_password']:
             raise serializers.ValidationError({
-                "confirm_password": "Password fields didn't match."
+                'confirm_password': 'Passwords do not match.'
             })
         
-        # Validate password strength
-        try:
-            validate_password(data['new_password'])
-        except ValidationError as e:
-            raise serializers.ValidationError({"new_password": e.messages})
-        
-        return data
+        return attrs
 
 
 class UserPrivacySettingsSerializer(serializers.ModelSerializer):

@@ -433,6 +433,30 @@ class ChangePasswordView(generics.CreateAPIView):
             'message': 'Password changed successfully.'
         })
 
+class ChangePasswordView(generics.UpdateAPIView):
+    """Change password endpoint."""
+    serializer_class = ChangePasswordSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def update(self, request, *args, **kwargs):
+        user = request.user
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Set new password
+        user.set_password(serializer.validated_data['new_password'])
+        user.save()
+        
+        # Determine the message based on whether this was first-time password set
+        if user.google_id and not user.has_usable_password():
+            message = 'Password set successfully. You can now login with email/password.'
+        else:
+            message = 'Password changed successfully.'
+        
+        return Response({
+            'message': message
+        })
+
 class UserAccountDeleteView(generics.DestroyAPIView):
     """Delete user account endpoint."""
     permission_classes = [IsAuthenticated]
