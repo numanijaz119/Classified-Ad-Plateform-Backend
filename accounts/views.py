@@ -26,7 +26,8 @@ from .serializers import (
     ResendVerificationSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
-    ChangePasswordSerializer
+    ChangePasswordSerializer,
+    UserPrivacySettingsSerializer
 )
 from core.utils import get_client_ip
 from core.email_utils import send_verification_email, send_password_reset_email

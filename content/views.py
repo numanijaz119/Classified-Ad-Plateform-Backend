@@ -13,7 +13,6 @@ from .serializers import (
     CitySimpleSerializer,
     CategorySerializer, 
     CategorySimpleSerializer,
-    CityAutocompleteSerializer
 )
 
 # State Views
@@ -74,19 +73,6 @@ class CitySimpleListView(StateAwareViewMixin, generics.ListAPIView):
     state_field_path = 'state__code'
     cache_timeout = 3600  # 1 hour cache for simple lists
 
-class CitiesByStateView(generics.ListAPIView):
-    """Get cities for a specific state."""
-    
-    serializer_class = CitySimpleSerializer
-    permission_classes = [AllowAny]
-    
-    def get_queryset(self):
-        state_code = self.kwargs.get('state_code', '').upper()
-        return City.objects.filter(
-            state__code=state_code,
-            state__is_active=True,
-            is_active=True
-        ).order_by('-is_major', 'name')
 
 # Category Views
 class CategoryListView(StateAwareViewMixin, generics.ListAPIView):
@@ -130,81 +116,3 @@ class CategorySimpleListView(StateAwareViewMixin, generics.ListAPIView):
     permission_classes = [AllowAny]
     ordering = ['sort_order', 'name']
     cache_timeout = 3600  # 1 hour cache for simple lists
-
-
-
-class CityAutocompleteView(generics.ListAPIView):
-    """Autocomplete search for cities."""
-    
-    serializer_class = CityAutocompleteSerializer
-    permission_classes = [AllowAny]
-    
-    def get_queryset(self):
-        """Search cities by name with optional state filter."""
-        query = self.request.query_params.get('q', '').strip()
-        state_code = self.request.query_params.get('state', '').strip().upper()
-        limit = int(self.request.query_params.get('limit', 10))
-        
-        if not query:
-            return City.objects.none()
-        
-        # Build queryset
-        queryset = City.objects.filter(
-            is_active=True,
-            name__istartswith=query  # Case-insensitive starts with
-        ).select_related('state')
-        
-        # Filter by state if provided
-        if state_code:
-            queryset = queryset.filter(state__code=state_code, state__is_active=True)
-        
-        # Order by major cities first, then alphabetically
-        queryset = queryset.order_by('-is_major', 'name')[:limit]
-        
-        return queryset
-    
-    def list(self, request, *args, **kwargs):
-        """Return autocomplete results with metadata."""
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        
-        return Response({
-            'results': serializer.data,
-            'count': len(serializer.data),
-            'query': request.query_params.get('q', '')
-        })
-
-
-class CitySearchView(generics.ListAPIView):
-    """Advanced city search with multiple filters."""
-    
-    serializer_class = CityAutocompleteSerializer
-    permission_classes = [AllowAny]
-    
-    def get_queryset(self):
-        """Search cities with multiple criteria."""
-        query = self.request.query_params.get('q', '').strip()
-        state_code = self.request.query_params.get('state', '').strip().upper()
-        major_only = self.request.query_params.get('major_only', 'false').lower() == 'true'
-        
-        queryset = City.objects.filter(is_active=True).select_related('state')
-        
-        # Text search - search in name
-        if query:
-            queryset = queryset.filter(
-                Q(name__icontains=query) |
-                Q(state__name__icontains=query)
-            )
-        
-        # State filter
-        if state_code:
-            queryset = queryset.filter(state__code=state_code, state__is_active=True)
-        
-        # Major cities only
-        if major_only:
-            queryset = queryset.filter(is_major=True)
-        
-        # Order by relevance: major cities first, then alphabetically
-        queryset = queryset.order_by('-is_major', 'name')
-        
-        return queryset

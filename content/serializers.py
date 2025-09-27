@@ -76,18 +76,3 @@ class CategorySimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ['id', 'name', 'icon']
-
-class CityAutocompleteSerializer(serializers.ModelSerializer):
-    """Serializer for city autocomplete with state info."""
-    
-    state_name = serializers.CharField(source='state.name', read_only=True)
-    state_code = serializers.CharField(source='state.code', read_only=True)
-    display_name = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = City
-        fields = ['id', 'name', 'state_name', 'state_code', 'is_major', 'display_name']
-    
-    def get_display_name(self, obj):
-        """Return formatted display name with state."""
-        return f"{obj.name}, {obj.state.code}"
