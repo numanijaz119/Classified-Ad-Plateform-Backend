@@ -83,7 +83,8 @@ class CategoryListView(StateAwareViewMixin, generics.ListAPIView):
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
     pagination_class = StandardResultsSetPagination
-    filter_backends = [filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['parent', 'slug', 'id']
     ordering_fields = ['name', 'sort_order', 'created_at']
     ordering = ['sort_order', 'name']
     cache_timeout = 1800  # 30 minutes cache
