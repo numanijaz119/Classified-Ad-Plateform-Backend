@@ -1,17 +1,18 @@
 # administrator/views.py
-from rest_framework import generics, status, viewsets
-from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework import generics, status, viewsets, filters
+from rest_framework.decorators import api_view, permission_classes, action as drf_action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Count, Sum, Q, Avg, F
 from django.db.models.functions import TruncDate, TruncMonth, TruncDay
 from django.utils import timezone
 from datetime import timedelta, datetime
-from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
+
 from core.simple_mixins import AdminViewMixin
 from core.search_mixins import SearchFilterMixin
-from core.pagination import LargeResultsSetPagination
+from core.pagination import LargeResultsSetPagination, StandardResultsSetPagination
 
 from ads.models import Ad, AdView, AdContact, AdFavorite, AdReport
 from accounts.models import User
@@ -26,69 +27,79 @@ from .serializers import (
     AdminReportSerializer,
     AdminBannerSerializer,
 )
+from .filters import AdminUserFilter, AdminReportFilter, AdminAdFilter
 
 # ============================================================================
 # DASHBOARD STATISTICS
 # ============================================================================
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_dashboard_stats(request):
+class AdminDashboardStatsView(generics.GenericAPIView):
     """Get dashboard statistics for admin - can filter by state."""
+    permission_classes = [IsAdminUser]
     
-    # Get state filter if provided
-    state_filter = request.query_params.get('state')
-    
-    # Base querysets
-    ads_qs = Ad.objects.exclude(status='deleted')
-    users_qs = User.objects.all()
-    
-    # Apply state filter if provided
-    if state_filter:
-        ads_qs = ads_qs.filter(state__code__iexact=state_filter)
-    
-    # Basic stats
-    total_ads = ads_qs.count()
-    pending_ads = ads_qs.filter(status='pending').count()
-    active_ads = ads_qs.filter(status='approved').count()
-    featured_ads = ads_qs.filter(plan='featured').count()
-    
-    # User stats
-    total_users = users_qs.count()
-    active_users = users_qs.filter(is_active=True, is_suspended=False).count()
-    suspended_users = users_qs.filter(is_suspended=True).count()
-    banned_users = users_qs.filter(is_active=False).count()
-    
-    # Revenue calculation (featured ads * $10)
-    monthly_revenue = ads_qs.filter(
-        plan='featured',
-        created_at__gte=timezone.now().replace(day=1)
-    ).count() * 10
-    
-    # Recent activity
-    recent_ads = ads_qs.filter(
-        created_at__gte=timezone.now() - timedelta(days=7)
-    ).count()
-    
-    # Reports stats
-    pending_reports = AdReport.objects.filter(is_reviewed=False).count()
-    total_reports = AdReport.objects.count()
-    
-    return Response({
-        'total_ads': total_ads,
-        'pending_ads': pending_ads,
-        'active_ads': active_ads,
-        'featured_ads': featured_ads,
-        'total_users': total_users,
-        'active_users': active_users,
-        'suspended_users': suspended_users,
-        'banned_users': banned_users,
-        'monthly_revenue': monthly_revenue,
-        'recent_ads': recent_ads,
-        'pending_reports': pending_reports,
-        'total_reports': total_reports,
-        'state_filter': state_filter,
-    })
+    def get(self, request):
+        state_filter = request.query_params.get('state', 'all')
+        
+        # Base queryset
+        ads_qs = Ad.objects.exclude(status='deleted')
+        users_qs = User.objects.all()
+        
+        # Apply state filter
+        if state_filter != 'all':
+            ads_qs = ads_qs.filter(state__code=state_filter)
+        
+        # Calculate statistics
+        total_ads = ads_qs.count()
+        active_ads = ads_qs.filter(status='approved').count()
+        pending_ads = ads_qs.filter(status='pending').count()
+        rejected_ads = ads_qs.filter(status='rejected').count()
+        featured_ads = ads_qs.filter(plan='featured').count()
+        
+        total_users = users_qs.count()
+        active_users = users_qs.filter(is_active=True, is_suspended=False).count()
+        suspended_users = users_qs.filter(is_suspended=True).count()
+        banned_users = users_qs.filter(is_active=False).count()
+        
+        total_views = AdView.objects.filter(ad__in=ads_qs).count()
+        total_contacts = AdContact.objects.filter(ad__in=ads_qs).count()
+        total_favorites = AdFavorite.objects.filter(ad__in=ads_qs).count()
+        
+        pending_reports = AdReport.objects.filter(
+            is_reviewed=False,
+            ad__in=ads_qs
+        ).count()
+        
+        # Recent activity (last 7 days)
+        week_ago = timezone.now() - timedelta(days=7)
+        new_ads_this_week = ads_qs.filter(created_at__gte=week_ago).count()
+        new_users_this_week = users_qs.filter(created_at__gte=week_ago).count()
+        
+        return Response({
+            'ads': {
+                'total': total_ads,
+                'active': active_ads,
+                'pending': pending_ads,
+                'rejected': rejected_ads,
+                'featured': featured_ads,
+                'new_this_week': new_ads_this_week,
+            },
+            'users': {
+                'total': total_users,
+                'active': active_users,
+                'suspended': suspended_users,
+                'banned': banned_users,
+                'new_this_week': new_users_this_week,
+            },
+            'engagement': {
+                'total_views': total_views,
+                'total_contacts': total_contacts,
+                'total_favorites': total_favorites,
+            },
+            'moderation': {
+                'pending_reports': pending_reports,
+            }
+        })
+
 
 # ============================================================================
 # ADS MANAGEMENT
@@ -100,24 +111,37 @@ class AdminAdViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModelVi
     serializer_class = AdminAdSerializer
     permission_classes = [IsAdminUser]
     pagination_class = LargeResultsSetPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_class = AdminAdFilter  
     
-    # State filtering configuration for admin
+    search_fields = [
+        'title',
+        'description',
+        'keywords',
+        'category__name',
+        'user__email',
+        'user__first_name',
+        'user__last_name',
+    ]
+
+    ordering_fields = ['created_at', 'title', 'price', 'view_count', 'status']
+    ordering = ['-created_at']
+
     state_field_path = 'state__code'
     
     def get_queryset(self):
         """Get ads queryset with admin filtering."""
-        return Ad.objects.exclude(status='deleted').select_related(
-            'user', 'category', 'city', 'state'
+        return Ad.objects.select_related(
+            'category', 'city', 'state', 'user'
         ).prefetch_related('images')
     
-    def get_filterset_class(self):
-        """Return admin filter class."""
-        from ads.filters import AdminAdFilter
-        return AdminAdFilter
-    
-    @action(detail=True, methods=['post'])
+    @drf_action(detail=True, methods=['post'])
     def action(self, request, pk=None):
-        """Perform actions on ads (approve, reject, delete, feature)."""
+        """Approve, reject, delete, feature, or unfeature ads."""
         ad = self.get_object()
         action = request.data.get('action')
         reason = request.data.get('reason', '')
@@ -143,12 +167,12 @@ class AdminAdViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModelVi
         elif action == 'feature':
             ad.plan = 'featured'
             ad.featured_expires_at = timezone.now() + timedelta(days=30)
-            message = 'Ad made featured successfully'
+            message = 'Ad featured successfully'
             
         elif action == 'unfeature':
             ad.plan = 'free'
             ad.featured_expires_at = None
-            message = 'Ad removed from featured successfully'
+            message = 'Ad unfeatured successfully'
             
         else:
             return Response({'error': 'Invalid action'}, status=400)
@@ -157,11 +181,10 @@ class AdminAdViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModelVi
         
         return Response({
             'message': message,
-            'ad_status': ad.status,
-            'ad_plan': ad.plan
+            'ad': AdminAdSerializer(ad).data
         })
     
-    @action(detail=False, methods=['post'])
+    @drf_action(detail=False, methods=['post'])
     def bulk_action(self, request):
         """Perform bulk actions on multiple ads."""
         ad_ids = request.data.get('ad_ids', [])
@@ -217,12 +240,31 @@ class AdminUserViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModel
     serializer_class = AdminUserSerializer
     permission_classes = [IsAdminUser]
     pagination_class = LargeResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = AdminUserFilter
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    
+    filterset_class = AdminUserFilter  # Local filter
+    
+    search_fields = [
+        'email',
+        'first_name',
+        'last_name',
+        'phone',
+    ]
+    
+    ordering_fields = ['created_at', 'email', 'first_name', 'last_name']
+    ordering = ['-created_at']
     
     def get_queryset(self):
         """Get users queryset with admin filtering."""
         return User.objects.select_related().prefetch_related('ads')
     
-    @action(detail=True, methods=['post'])
+    @drf_action(detail=True, methods=['post'])
     def action(self, request, pk=None):
         """Ban, suspend, or activate users."""
         user = self.get_object()
@@ -260,7 +302,7 @@ class AdminUserViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModel
             }
         })
     
-    @action(detail=True, methods=['get'])
+    @drf_action(detail=True, methods=['get'])
     def activity(self, request, pk=None):
         """Get user activity logs."""
         user = self.get_object()
@@ -283,280 +325,151 @@ class AdminUserViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModel
             'ads_statistics': ads_data,
             'recent_ads': recent_ads_data,
         })
-
-# Legacy function-based view (to be removed after URL updates)
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_users_list(request):
-    """Get users list for admin."""
     
-    search = request.query_params.get('search', '')
-    status_filter = request.query_params.get('status', 'all')
-    
-    queryset = User.objects.select_related().prefetch_related('ads')
-    
-    if search:
-        queryset = queryset.filter(
-            Q(email__icontains=search) |
-            Q(first_name__icontains=search) |
-            Q(last_name__icontains=search)
-        )
-    
-    if status_filter == 'active':
-        queryset = queryset.filter(is_active=True, is_suspended=False)
-    elif status_filter == 'suspended':
-        queryset = queryset.filter(is_suspended=True)
-    elif status_filter == 'banned':
-        queryset = queryset.filter(is_active=False)
-    
-    queryset = queryset.order_by('-created_at')
-    
-    # Pagination
-    page_size = int(request.query_params.get('page_size', 20))
-    page = int(request.query_params.get('page', 1))
-    paginator = Paginator(queryset, page_size)
-    page_obj = paginator.get_page(page)
-    
-    users_data = AdminUserSerializer(page_obj, many=True).data
-    
-    return Response({
-        'users': users_data,
-        'total_count': paginator.count,
-        'page': page,
-        'page_size': page_size,
-        'total_pages': paginator.num_pages,
-        'has_next': page_obj.has_next(),
-        'has_previous': page_obj.has_previous(),
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_user_action(request, user_id):
-    """Ban, suspend, or activate users."""
-    
-    user = get_object_or_404(User, id=user_id)
-    action = request.data.get('action')
-    reason = request.data.get('reason', '')
-    
-    if action == 'ban':
-        user.is_active = False
-        user.is_suspended = True
-        user.suspension_reason = reason
-        message = 'User banned successfully'
+    @drf_action(detail=False, methods=['post'])
+    def bulk_action(self, request):
+        """Perform bulk actions on multiple users."""
+        user_ids = request.data.get('user_ids', [])
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
         
-    elif action == 'suspend':
-        user.is_suspended = True
-        user.suspension_reason = reason
-        message = 'User suspended successfully'
+        if not user_ids or action not in ['ban', 'suspend', 'activate']:
+            return Response({'error': 'Invalid data provided'}, status=400)
         
-    elif action == 'activate':
-        user.is_active = True
-        user.is_suspended = False
-        user.suspension_reason = ''
-        message = 'User activated successfully'
+        users = User.objects.filter(id__in=user_ids)
         
-    else:
-        return Response({'error': 'Invalid action'}, status=400)
-    
-    user.save()
-    
-    return Response({
-        'message': message,
-        'user_status': {
-            'is_active': user.is_active,
-            'is_suspended': user.is_suspended,
-            'suspension_reason': user.suspension_reason
-        }
-    })
+        if not users.exists():
+            return Response({'error': 'No users found with provided IDs'}, status=404)
+        
+        updated_count = 0
+        
+        for user in users:
+            if action == 'ban':
+                user.is_active = False
+                user.is_suspended = True
+                user.suspension_reason = reason
+            elif action == 'suspend':
+                user.is_suspended = True
+                user.suspension_reason = reason
+            elif action == 'activate':
+                user.is_active = True
+                user.is_suspended = False
+                user.suspension_reason = ''
+            
+            user.save()
+            updated_count += 1
+        
+        return Response({
+            'message': f'Successfully {action}ed {updated_count} users',
+            'updated_count': updated_count
+        })
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_user_activity(request, user_id):
-    """Get user activity logs."""
-    
-    user = get_object_or_404(User, id=user_id)
-    
-    # Get user's ads activity
-    ads_data = {
-        'total_ads': user.ads.exclude(status='deleted').count(),
-        'active_ads': user.ads.filter(status='approved').count(),
-        'pending_ads': user.ads.filter(status='pending').count(),
-        'rejected_ads': user.ads.filter(status='rejected').count(),
-        'featured_ads': user.ads.filter(plan='featured').count(),
-    }
-    
-    # Get recent ads
-    recent_ads = user.ads.exclude(status='deleted').order_by('-created_at')[:10]
-    recent_ads_data = AdminAdSerializer(recent_ads, many=True).data
-    
-    return Response({
-        'user': AdminUserSerializer(user).data,
-        'ads_statistics': ads_data,
-        'recent_ads': recent_ads_data,
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_bulk_user_action(request):
-    """Perform bulk actions on multiple users."""
-    
-    user_ids = request.data.get('user_ids', [])
-    action = request.data.get('action')
-    reason = request.data.get('reason', '')
-    
-    if not user_ids or action not in ['ban', 'suspend', 'activate']:
-        return Response({'error': 'Invalid data provided'}, status=400)
-    
-    users = User.objects.filter(id__in=user_ids)
-    
-    if not users.exists():
-        return Response({'error': 'No users found with provided IDs'}, status=404)
-    
-    updated_count = 0
-    
-    for user in users:
-        if action == 'ban':
-            user.is_active = False
-            user.is_suspended = True
-            user.suspension_reason = reason
-        elif action == 'suspend':
-            user.is_suspended = True
-            user.suspension_reason = reason
-        elif action == 'activate':
-            user.is_active = True
-            user.is_suspended = False
-            user.suspension_reason = ''
-        
-        user.save()
-        updated_count += 1
-    
-    return Response({
-        'message': f'Successfully {action}ed {updated_count} users',
-        'updated_count': updated_count
-    })
 
 # ============================================================================
 # REPORTS MANAGEMENT
 # ============================================================================
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_reports_list(request):
-    """Get all ad reports for admin review."""
+class AdminReportViewSet(AdminViewMixin, viewsets.ReadOnlyModelViewSet):
+    """Admin ViewSet for managing ad reports."""
     
-    status_filter = request.query_params.get('status', 'pending')
-    reason_filter = request.query_params.get('reason', 'all')
+    serializer_class = AdminReportSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = LargeResultsSetPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.OrderingFilter,
+    ]
     
-    queryset = AdReport.objects.select_related('ad', 'reported_by', 'reviewed_by')
+    filterset_class = AdminReportFilter  # Local filter
     
-    if status_filter == 'pending':
-        queryset = queryset.filter(is_reviewed=False)
-    elif status_filter == 'reviewed':
-        queryset = queryset.filter(is_reviewed=True)
+    ordering_fields = ['created_at', 'reason']
+    ordering = ['-created_at']
+    def get_queryset(self):
+        """Get reports queryset with filtering."""
+        return AdReport.objects.select_related('ad', 'reported_by', 'reviewed_by')
     
-    if reason_filter != 'all':
-        queryset = queryset.filter(reason=reason_filter)
-    
-    queryset = queryset.order_by('-created_at')
-    
-    # Pagination
-    page_size = int(request.query_params.get('page_size', 20))
-    page = int(request.query_params.get('page', 1))
-    paginator = Paginator(queryset, page_size)
-    page_obj = paginator.get_page(page)
-    
-    reports_data = AdminReportSerializer(page_obj, many=True).data
-    
-    return Response({
-        'reports': reports_data,
-        'total_count': paginator.count,
-        'page': page,
-        'page_size': page_size,
-        'total_pages': paginator.num_pages,
-        'has_next': page_obj.has_next(),
-        'has_previous': page_obj.has_previous(),
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_report_action(request, report_id):
-    """Handle reports (approve/dismiss)."""
-    
-    report = get_object_or_404(AdReport, id=report_id)
-    action = request.data.get('action')
-    admin_notes = request.data.get('admin_notes', '')
-    
-    if action == 'approve':
-        # Mark report as reviewed and take action on the ad
-        report.is_reviewed = True
-        report.reviewed_by = request.user
-        report.reviewed_at = timezone.now()
-        report.admin_notes = admin_notes
-        
-        # Take action on the reported ad based on the report reason
-        ad = report.ad
-        if report.reason in ['spam', 'fraud']:
-            ad.status = 'rejected'
-            ad.rejection_reason = f'Reported as {report.get_reason_display()}'
-        elif report.reason == 'inappropriate':
-            ad.status = 'pending'  # Send back for review
-        
-        ad.save()
-        message = 'Report approved and action taken on ad'
-        
-    elif action == 'dismiss':
-        report.is_reviewed = True
-        report.reviewed_by = request.user
-        report.reviewed_at = timezone.now()
-        report.admin_notes = admin_notes or 'Report dismissed - no action needed'
-        message = 'Report dismissed'
-        
-    else:
-        return Response({'error': 'Invalid action'}, status=400)
-    
-    report.save()
-    
-    return Response({
-        'message': message,
-        'report_status': 'reviewed'
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_bulk_report_action(request):
-    """Perform bulk actions on multiple reports."""
-    
-    report_ids = request.data.get('report_ids', [])
-    action = request.data.get('action')
-    admin_notes = request.data.get('admin_notes', '')
-    
-    if not report_ids or action not in ['approve', 'dismiss']:
-        return Response({'error': 'Invalid data provided'}, status=400)
-    
-    reports = AdReport.objects.filter(id__in=report_ids, is_reviewed=False)
-    updated_count = 0
-    
-    for report in reports:
-        report.is_reviewed = True
-        report.reviewed_by = request.user
-        report.reviewed_at = timezone.now()
-        report.admin_notes = admin_notes
+    @drf_action(detail=True, methods=['post'])
+    def action(self, request, pk=None):
+        """Handle reports (approve/dismiss)."""
+        report = self.get_object()
+        action = request.data.get('action')
+        admin_notes = request.data.get('admin_notes', '')
         
         if action == 'approve':
-            # Take action on the reported ad
+            # Mark report as reviewed and take action on the ad
+            report.is_reviewed = True
+            report.reviewed_by = request.user
+            report.reviewed_at = timezone.now()
+            report.admin_notes = admin_notes
+            
+            # Take action on the reported ad based on the report reason
             ad = report.ad
             if report.reason in ['spam', 'fraud']:
                 ad.status = 'rejected'
                 ad.rejection_reason = f'Reported as {report.get_reason_display()}'
-                ad.save()
+            elif report.reason == 'inappropriate':
+                ad.status = 'pending'  # Send back for review
+            
+            ad.save()
+            message = 'Report approved and action taken on ad'
+            
+        elif action == 'dismiss':
+            report.is_reviewed = True
+            report.reviewed_by = request.user
+            report.reviewed_at = timezone.now()
+            report.admin_notes = admin_notes or 'Report dismissed - no action needed'
+            message = 'Report dismissed'
+            
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
         
         report.save()
-        updated_count += 1
+        
+        return Response({
+            'message': message,
+            'report_status': 'reviewed'
+        })
     
-    return Response({
-        'message': f'Successfully {action}ed {updated_count} reports',
-        'updated_count': updated_count
-    })
+    @drf_action(detail=False, methods=['post'])
+    def bulk_action(self, request):
+        """Perform bulk actions on multiple reports."""
+        report_ids = request.data.get('report_ids', [])
+        action = request.data.get('action')
+        admin_notes = request.data.get('admin_notes', '')
+        
+        if not report_ids or action not in ['approve', 'dismiss']:
+            return Response({'error': 'Invalid data provided'}, status=400)
+        
+        reports = AdReport.objects.filter(id__in=report_ids)
+        
+        if not reports.exists():
+            return Response({'error': 'No reports found with provided IDs'}, status=404)
+        
+        updated_count = 0
+        
+        for report in reports:
+            report.is_reviewed = True
+            report.reviewed_by = request.user
+            report.reviewed_at = timezone.now()
+            report.admin_notes = admin_notes
+            
+            if action == 'approve':
+                ad = report.ad
+                if report.reason in ['spam', 'fraud']:
+                    ad.status = 'rejected'
+                    ad.rejection_reason = f'Reported as {report.get_reason_display()}'
+                elif report.reason == 'inappropriate':
+                    ad.status = 'pending'
+                ad.save()
+            
+            report.save()
+            updated_count += 1
+        
+        return Response({
+            'message': f'{updated_count} reports processed successfully',
+            'updated_count': updated_count
+        })
+
 
 # ============================================================================
 # ANALYTICS
@@ -565,412 +478,357 @@ def admin_bulk_report_action(request):
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_analytics_overview(request):
-    """Platform overview analytics with charts data."""
-    
+    """Get comprehensive analytics overview."""
+    state_filter = request.query_params.get('state', 'all')
     days = int(request.query_params.get('days', 30))
+    
     end_date = timezone.now()
     start_date = end_date - timedelta(days=days)
     
-    # Daily ads creation
-    daily_ads = Ad.objects.filter(
-        created_at__gte=start_date
-    ).extra(
-        select={'day': 'date(created_at)'}
-    ).values('day').annotate(
-        count=Count('id')
-    ).order_by('day')
+    # Base queryset
+    ads_qs = Ad.objects.exclude(status='deleted')
+    if state_filter != 'all':
+        ads_qs = ads_qs.filter(state__code=state_filter)
     
-    # Daily user registrations
-    daily_users = User.objects.filter(
+    # Daily ad creation trend
+    daily_ads = ads_qs.filter(
         created_at__gte=start_date
-    ).extra(
-        select={'day': 'date(created_at)'}
-    ).values('day').annotate(
+    ).annotate(
+        date=TruncDate('created_at')
+    ).values('date').annotate(
         count=Count('id')
-    ).order_by('day')
+    ).order_by('date')
     
-    # Page views (if you have tracking)
+    # Status distribution
+    status_dist = ads_qs.values('status').annotate(
+        count=Count('id')
+    )
+    
+    # Category distribution
+    category_dist = ads_qs.values(
+        'category__name'
+    ).annotate(
+        count=Count('id')
+    ).order_by('-count')[:10]
+    
+    # View and contact trends
     daily_views = AdView.objects.filter(
-        created_at__gte=start_date
-    ).extra(
-        select={'day': 'date(created_at)'}
-    ).values('day').annotate(
+        viewed_at__gte=start_date,
+        ad__in=ads_qs
+    ).annotate(
+        date=TruncDate('viewed_at')
+    ).values('date').annotate(
         count=Count('id')
-    ).order_by('day')
+    ).order_by('date')
     
-    # Category performance
-    category_stats = Category.objects.annotate(
-        total_ads=Count('ads'),
-        active_ads=Count('ads', filter=Q(ads__status='approved'))
-    ).order_by('-total_ads')
+    daily_contacts = AdContact.objects.filter(
+        contacted_at__gte=start_date,
+        ad__in=ads_qs
+    ).annotate(
+        date=TruncDate('contacted_at')
+    ).values('date').annotate(
+        count=Count('id')
+    ).order_by('date')
     
     return Response({
         'daily_ads': list(daily_ads),
-        'daily_users': list(daily_users),
+        'status_distribution': list(status_dist),
+        'top_categories': list(category_dist),
         'daily_views': list(daily_views),
-        'category_stats': [
-            {
-                'name': cat.name,
-                'total_ads': cat.total_ads,
-                'active_ads': cat.active_ads
-            }
-            for cat in category_stats[:10]
-        ]
+        'daily_contacts': list(daily_contacts),
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_analytics_users(request):
-    """User growth analytics."""
-    
+    """Get user growth analytics."""
     days = int(request.query_params.get('days', 30))
+    
     end_date = timezone.now()
     start_date = end_date - timedelta(days=days)
     
-    # User growth over time
-    user_growth = User.objects.filter(
+    # Daily user registrations
+    daily_users = User.objects.filter(
         created_at__gte=start_date
-    ).extra(
-        select={'day': 'date(created_at)'}
-    ).values('day').annotate(
-        new_users=Count('id')
-    ).order_by('day')
+    ).annotate(
+        date=TruncDate('created_at')
+    ).values('date').annotate(
+        count=Count('id')
+    ).order_by('date')
     
-    # User activity stats
-    active_users = User.objects.filter(is_active=True, is_suspended=False).count()
-    suspended_users = User.objects.filter(is_suspended=True).count()
-    banned_users = User.objects.filter(is_active=False).count()
+    # User status distribution
+    status_dist = {
+        'active': User.objects.filter(is_active=True, is_suspended=False).count(),
+        'suspended': User.objects.filter(is_suspended=True).count(),
+        'banned': User.objects.filter(is_active=False).count(),
+    }
     
-    # Top users by ads
+    # Top users by ad count
     top_users = User.objects.annotate(
-        ads_count=Count('ads', filter=Q(ads__status='approved'))
-    ).filter(ads_count__gt=0).order_by('-ads_count')[:10]
+        ad_count=Count('ads', filter=Q(ads__status='approved'))
+    ).order_by('-ad_count')[:10]
+    
+    top_users_data = [{
+        'id': user.id,
+        'email': user.email,
+        'name': user.get_full_name(),
+        'ad_count': user.ad_count,
+    } for user in top_users]
     
     return Response({
-        'user_growth': list(user_growth),
-        'user_stats': {
-            'active': active_users,
-            'suspended': suspended_users,
-            'banned': banned_users,
-            'total': active_users + suspended_users + banned_users
-        },
-        'top_users': [
-            {
-                'id': user.id,
-                'name': user.get_full_name(),
-                'email': user.email,
-                'ads_count': user.ads_count,
-                'joined': user.created_at
-            }
-            for user in top_users
-        ]
+        'daily_registrations': list(daily_users),
+        'status_distribution': status_dist,
+        'top_users': top_users_data,
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_analytics_revenue(request):
-    """Revenue analytics with monthly breakdown."""
+    """Get revenue analytics."""
+    days = int(request.query_params.get('days', 30))
     
-    # Monthly revenue for last 12 months
     end_date = timezone.now()
-    start_date = end_date - timedelta(days=365)
+    start_date = end_date - timedelta(days=days)
     
-    monthly_revenue = Ad.objects.filter(
+    # Featured ads revenue (assuming $9.99 per featured ad)
+    featured_ads = Ad.objects.filter(
         plan='featured',
-        created_at__gte=start_date
-    ).extra(
-        select={'month': "to_char(created_at, 'YYYY-MM')"}
-    ).values('month').annotate(
-        featured_ads=Count('id'),
-        revenue=Count('id') * 10  # $10 per featured ad
-    ).order_by('month')
+        featured_expires_at__gte=start_date
+    )
     
-    # State-wise revenue
-    state_revenue = Ad.objects.filter(
-        plan='featured'
-    ).values('state__name', 'state__code').annotate(
-        featured_ads=Count('id'),
-        revenue=Count('id') * 10
-    ).order_by('-revenue')
+    daily_revenue = featured_ads.annotate(
+        date=TruncDate('created_at')
+    ).values('date').annotate(
+        count=Count('id'),
+        revenue=Count('id') * 9.99
+    ).order_by('date')
     
-    total_revenue = sum(item['revenue'] for item in monthly_revenue)
-    total_featured_ads = sum(item['featured_ads'] for item in monthly_revenue)
+    total_revenue = featured_ads.count() * 9.99
     
     return Response({
-        'monthly_revenue': list(monthly_revenue),
-        'state_revenue': list(state_revenue),
-        'totals': {
-            'total_revenue': total_revenue,
-            'total_featured_ads': total_featured_ads,
-            'average_monthly': total_revenue / 12 if monthly_revenue else 0
-        }
+        'daily_revenue': list(daily_revenue),
+        'total_revenue': total_revenue,
+        'featured_ads_count': featured_ads.count(),
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_analytics_geographic(request):
-    """Geographic analytics - performance by state and city."""
+    """Get geographic distribution analytics."""
     
-    # State-wise performance
-    state_stats = State.objects.annotate(
-        total_ads=Count('ads', filter=Q(ads__status='approved')),
-        total_users=Count('ads__user', distinct=True),
-        featured_ads=Count('ads', filter=Q(ads__plan='featured')),
-        revenue=Count('ads', filter=Q(ads__plan='featured')) * 10
-    ).filter(is_active=True).order_by('-total_ads')
+    # State-wise distribution
+    state_dist = Ad.objects.exclude(
+        status='deleted'
+    ).values(
+        'state__code', 'state__name'
+    ).annotate(
+        count=Count('id')
+    ).order_by('-count')
     
-    # Top performing cities
-    city_stats = City.objects.annotate(
-        total_ads=Count('ads', filter=Q(ads__status='approved')),
-        avg_price=Avg('ads__price', filter=Q(ads__status='approved'))
-    ).filter(is_active=True, total_ads__gt=0).order_by('-total_ads')[:20]
+    # City-wise distribution (top 20)
+    city_dist = Ad.objects.exclude(
+        status='deleted'
+    ).values(
+        'city__name', 'state__code'
+    ).annotate(
+        count=Count('id')
+    ).order_by('-count')[:20]
     
     return Response({
-        'state_performance': [
-            {
-                'state': state.name,
-                'code': state.code,
-                'total_ads': state.total_ads,
-                'total_users': state.total_users,
-                'featured_ads': state.featured_ads,
-                'revenue': state.revenue
-            }
-            for state in state_stats
-        ],
-        'top_cities': [
-            {
-                'city': city.name,
-                'state': city.state.name,
-                'total_ads': city.total_ads,
-                'avg_price': float(city.avg_price) if city.avg_price else 0
-            }
-            for city in city_stats
-        ]
+        'state_distribution': list(state_dist),
+        'top_cities': list(city_dist),
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_analytics_categories(request):
-    """Category performance analytics."""
+    """Get category performance analytics."""
     
+    # Category performance
     categories = Category.objects.annotate(
         total_ads=Count('ads', filter=Q(ads__status='approved')),
-        pending_ads=Count('ads', filter=Q(ads__status='pending')),
-        avg_price=Avg('ads__price', filter=Q(ads__status='approved')),
         total_views=Sum('ads__view_count'),
-        total_contacts=Sum('ads__contact_count')
-    ).filter(is_active=True).order_by('-total_ads')
+        avg_price=Avg('ads__price')
+    ).order_by('-total_ads')
+    
+    categories_data = [{
+        'id': cat.id,
+        'name': cat.name,
+        'slug': cat.slug,
+        'total_ads': cat.total_ads or 0,
+        'total_views': cat.total_views or 0,
+        'avg_price': float(cat.avg_price) if cat.avg_price else 0,
+    } for cat in categories]
     
     return Response({
-        'category_performance': [
-            {
-                'id': cat.id,
-                'name': cat.name,
-                'total_ads': cat.total_ads,
-                'pending_ads': cat.pending_ads,
-                'avg_price': float(cat.avg_price) if cat.avg_price else 0,
-                'total_views': cat.total_views or 0,
-                'total_contacts': cat.total_contacts or 0,
-                'conversion_rate': (
-                    (cat.total_contacts / cat.total_views * 100) 
-                    if cat.total_views and cat.total_contacts else 0
-                )
-            }
-            for cat in categories
-        ]
+        'categories': categories_data
     })
+
 
 # ============================================================================
 # BANNER MANAGEMENT
 # ============================================================================
 
-@api_view(['GET', 'POST'])
-@permission_classes([IsAdminUser])
-def admin_banners_list(request):
-    """List or create banner advertisements."""
+class AdminBannerViewSet(AdminViewMixin, viewsets.ModelViewSet):
+    """Admin ViewSet for managing banners."""
     
-    if request.method == 'GET':
-        banners = Banner.objects.all().order_by('-created_at')
+    serializer_class = AdminBannerSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['is_active', 'placement', 'state']
+    ordering_fields = ['created_at', 'title', 'impressions', 'clicks']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        """Get banners queryset."""
+        return Banner.objects.all()
+    
+    def perform_create(self, serializer):
+        """Set created_by when creating banner."""
+        serializer.save(created_by=self.request.user)
+    
+    @drf_action(detail=True, methods=['post'])
+    def toggle(self, request, pk=None):
+        """Toggle banner active status."""
+        banner = self.get_object()
+        banner.is_active = not banner.is_active
+        banner.save()
         
-        # Pagination
-        page_size = int(request.query_params.get('page_size', 20))
-        page = int(request.query_params.get('page', 1))
-        paginator = Paginator(banners, page_size)
-        page_obj = paginator.get_page(page)
-        
-        banners_data = AdminBannerSerializer(page_obj, many=True).data
+        action = 'activated' if banner.is_active else 'deactivated'
         
         return Response({
-            'banners': banners_data,
-            'total_count': paginator.count,
-            'page': page,
-            'page_size': page_size,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
+            'message': f'Banner {action} successfully',
+            'is_active': banner.is_active
         })
     
-    elif request.method == 'POST':
-        serializer = AdminBannerSerializer(data=request.data)
-        if serializer.is_valid():
-            banner = serializer.save(created_by=request.user)
-            return Response(AdminBannerSerializer(banner).data, status=201)
-        return Response(serializer.errors, status=400)
+    @drf_action(detail=True, methods=['get'])
+    def analytics(self, request, pk=None):
+        """Get detailed analytics for a specific banner."""
+        banner = self.get_object()
+        
+        # Daily performance for last 30 days
+        end_date = timezone.now()
+        start_date = end_date - timedelta(days=30)
+        
+        from .models import BannerImpression, BannerClick
+        
+        daily_impressions = BannerImpression.objects.filter(
+            banner=banner,
+            viewed_at__gte=start_date
+        ).annotate(
+            day=TruncDate('viewed_at')
+        ).values('day').annotate(
+            impressions=Count('id')
+        ).order_by('day')
+        
+        daily_clicks = BannerClick.objects.filter(
+            banner=banner,
+            clicked_at__gte=start_date
+        ).annotate(
+            day=TruncDate('clicked_at')
+        ).values('day').annotate(
+            clicks=Count('id')
+        ).order_by('day')
+        
+        return Response({
+            'banner_info': {
+                'id': banner.id,
+                'title': banner.title,
+                'total_impressions': banner.impressions,
+                'total_clicks': banner.clicks,
+                'ctr': banner.ctr
+            },
+            'daily_impressions': list(daily_impressions),
+            'daily_clicks': list(daily_clicks),
+        })
 
-@api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAdminUser])
-def admin_banner_detail(request, banner_id):
-    """Get, update, or delete a specific banner."""
-    
-    banner = get_object_or_404(Banner, id=banner_id)
-    
-    if request.method == 'GET':
-        return Response(AdminBannerSerializer(banner).data)
-    
-    elif request.method == 'PUT':
-        serializer = AdminBannerSerializer(banner, data=request.data, partial=True)
-        if serializer.is_valid():
-            banner = serializer.save()
-            return Response(AdminBannerSerializer(banner).data)
-        return Response(serializer.errors, status=400)
-    
-    elif request.method == 'DELETE':
-        banner.delete()
-        return Response({'message': 'Banner deleted successfully'})
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_banner_toggle(request, banner_id):
-    """Toggle banner active status."""
-    
-    banner = get_object_or_404(Banner, id=banner_id)
-    banner.is_active = not banner.is_active
-    banner.save()
-    
-    action = 'activated' if banner.is_active else 'deactivated'
-    
-    return Response({
-        'message': f'Banner {action} successfully',
-        'is_active': banner.is_active
-    })
-
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_banner_analytics(request, banner_id):
-    """Get detailed analytics for a specific banner."""
-    
-    banner = get_object_or_404(Banner, id=banner_id)
-    
-    # Daily performance for last 30 days
-    end_date = timezone.now()
-    start_date = end_date - timedelta(days=30)
-    
-    from .models import BannerImpression, BannerClick
-    
-    daily_impressions = BannerImpression.objects.filter(
-        banner=banner,
-        viewed_at__gte=start_date
-    ).extra(
-        select={'day': 'date(viewed_at)'}
-    ).values('day').annotate(
-        impressions=Count('id')
-    ).order_by('day')
-    
-    daily_clicks = BannerClick.objects.filter(
-        banner=banner,
-        clicked_at__gte=start_date
-    ).extra(
-        select={'day': 'date(clicked_at)'}
-    ).values('day').annotate(
-        clicks=Count('id')
-    ).order_by('day')
-    
-    return Response({
-        'banner_info': {
-            'id': banner.id,
-            'title': banner.title,
-            'total_impressions': banner.impressions,
-            'total_clicks': banner.clicks,
-            'ctr': banner.ctr
-        },
-        'daily_impressions': list(daily_impressions),
-        'daily_clicks': list(daily_clicks),
-    })
 
 # ============================================================================
 # CONTENT MANAGEMENT
 # ============================================================================
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_states_list(request):
+class AdminStateListView(generics.ListAPIView):
     """Get list of states for admin filtering."""
     
-    states = State.objects.filter(is_active=True).order_by('name')
+    serializer_class = AdminStateSerializer
+    permission_classes = [IsAdminUser]
+    queryset = State.objects.filter(is_active=True).order_by('name')
     
-    states_data = []
-    for state in states:
-        # Get stats for this state
-        ads_count = Ad.objects.filter(state=state).exclude(status='deleted').count()
-        active_ads = Ad.objects.filter(state=state, status='approved').count()
-        users_count = Ad.objects.filter(state=state).values('user').distinct().count()
+    def list(self, request, *args, **kwargs):
+        """Custom list response with stats."""
+        queryset = self.get_queryset()
         
-        states_data.append({
-            'id': state.id,
-            'code': state.code,
-            'name': state.name,
-            'domain': state.domain,
-            'total_ads': ads_count,
-            'active_ads': active_ads,
-            'users_count': users_count,
-        })
-    
-    return Response({'states': states_data})
+        states_data = []
+        for state in queryset:
+            # Get stats for this state
+            ads_count = Ad.objects.filter(state=state).exclude(status='deleted').count()
+            active_ads = Ad.objects.filter(state=state, status='approved').count()
+            users_count = Ad.objects.filter(state=state).values('user').distinct().count()
+            
+            states_data.append({
+                'id': state.id,
+                'code': state.code,
+                'name': state.name,
+                'domain': state.domain,
+                'total_ads': ads_count,
+                'active_ads': active_ads,
+                'users_count': users_count,
+            })
+        
+        return Response({'states': states_data})
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_categories_stats(request):
+
+class AdminCategoryStatsView(generics.ListAPIView):
     """Get category statistics."""
     
-    state_filter = request.query_params.get('state')
+    permission_classes = [IsAdminUser]
     
-    categories = Category.objects.filter(is_active=True)
-    
-    categories_data = []
-    for category in categories:
-        ads_qs = category.ads.exclude(status='deleted')
+    def get(self, request):
+        state_filter = request.query_params.get('state', 'all')
         
-        if state_filter:
-            ads_qs = ads_qs.filter(state__code__iexact=state_filter)
+        # Base queryset
+        categories = Category.objects.filter(is_active=True)
         
-        categories_data.append({
-            'id': category.id,
-            'name': category.name,
-            'icon': category.icon,
-            'total_ads': ads_qs.count(),
-            'active_ads': ads_qs.filter(status='approved').count(),
-            'pending_ads': ads_qs.filter(status='pending').count(),
-            'is_active': category.is_active,
-        })
-    
-    return Response({'categories': categories_data})
+        # Prepare stats
+        categories_data = []
+        for category in categories:
+            ads_qs = category.ads.exclude(status='deleted')
+            
+            if state_filter != 'all':
+                ads_qs = ads_qs.filter(state__code=state_filter)
+            
+            categories_data.append({
+                'id': category.id,
+                'name': category.name,
+                'slug': category.slug,
+                'total_ads': ads_qs.count(),
+                'active_ads': ads_qs.filter(status='approved').count(),
+                'pending_ads': ads_qs.filter(status='pending').count(),
+            })
+        
+        return Response({'categories': categories_data})
+
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_category_create(request):
     """Create a new category."""
-    
     serializer = AdminCategorySerializer(data=request.data)
     if serializer.is_valid():
         category = serializer.save()
         return Response(AdminCategorySerializer(category).data, status=201)
     return Response(serializer.errors, status=400)
 
+
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAdminUser])
 def admin_category_detail(request, category_id):
-    """Get, update, or delete a specific category."""
-    
+    """Get, update, or delete a category."""
     category = get_object_or_404(Category, id=category_id)
     
     if request.method == 'GET':
@@ -984,56 +842,45 @@ def admin_category_detail(request, category_id):
         return Response(serializer.errors, status=400)
     
     elif request.method == 'DELETE':
-        if category.ads.exists():
-            return Response(
-                {'error': 'Cannot delete category with existing ads'}, 
-                status=400
-            )
-        
-        category.delete()
-        return Response({'message': 'Category deleted successfully'})
+        category.is_active = False
+        category.save()
+        return Response({'message': 'Category deactivated successfully'})
+
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_city_create(request):
-    """Add a new city."""
-    
-    from .serializers import AdminCitySerializer
-    
-    serializer = AdminCitySerializer(data=request.data)
+    """Create a new city."""
+    from content.serializers import CitySerializer
+    serializer = CitySerializer(data=request.data)
     if serializer.is_valid():
         city = serializer.save()
-        return Response(AdminCitySerializer(city).data, status=201)
+        return Response(CitySerializer(city).data, status=201)
     return Response(serializer.errors, status=400)
+
 
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsAdminUser])
 def admin_city_detail(request, city_id):
-    """Get, update, or delete a specific city."""
-    
+    """Get, update, or delete a city."""
+    from content.serializers import CitySerializer
     city = get_object_or_404(City, id=city_id)
     
     if request.method == 'GET':
-        from .serializers import AdminCitySerializer
-        return Response(AdminCitySerializer(city).data)
+        return Response(CitySerializer(city).data)
     
     elif request.method == 'PUT':
-        from .serializers import AdminCitySerializer
-        serializer = AdminCitySerializer(city, data=request.data, partial=True)
+        serializer = CitySerializer(city, data=request.data, partial=True)
         if serializer.is_valid():
             city = serializer.save()
-            return Response(AdminCitySerializer(city).data)
+            return Response(CitySerializer(city).data)
         return Response(serializer.errors, status=400)
     
     elif request.method == 'DELETE':
-        if city.ads.exists():
-            return Response(
-                {'error': 'Cannot delete city with existing ads'}, 
-                status=400
-            )
-        
-        city.delete()
-        return Response({'message': 'City deleted successfully'})
+        city.is_active = False
+        city.save()
+        return Response({'message': 'City deactivated successfully'})
+
 
 # ============================================================================
 # SYSTEM SETTINGS
@@ -1042,27 +889,41 @@ def admin_city_detail(request, city_id):
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_settings(request):
-    """Get current admin settings."""
+    """Get admin settings."""
+    settings = AdminSettings.objects.first()
+    if not settings:
+        settings = AdminSettings.objects.create()
     
-    settings = AdminSettings.get_settings()
-    from .serializers import AdminSettingsSerializer
-    serializer = AdminSettingsSerializer(settings)
-    return Response(serializer.data)
+    return Response({
+        'maintenance_mode': settings.maintenance_mode,
+        'maintenance_message': settings.maintenance_message,
+        'allow_registration': settings.allow_registration,
+        'require_email_verification': settings.require_email_verification,
+        'auto_approve_ads': settings.auto_approve_ads,
+        'featured_ad_price': settings.featured_ad_price,
+        'featured_ad_duration_days': settings.featured_ad_duration_days,
+    })
+
 
 @api_view(['PUT'])
 @permission_classes([IsAdminUser])
 def admin_settings_update(request):
     """Update admin settings."""
+    settings = AdminSettings.objects.first()
+    if not settings:
+        settings = AdminSettings.objects.create()
     
-    settings = AdminSettings.get_settings()
-    from .serializers import AdminSettingsSerializer
-    serializer = AdminSettingsSerializer(settings, data=request.data, partial=True)
+    # Update fields
+    for field in ['maintenance_mode', 'maintenance_message', 'allow_registration', 
+                  'require_email_verification', 'auto_approve_ads', 'featured_ad_price',
+                  'featured_ad_duration_days']:
+        if field in request.data:
+            setattr(settings, field, request.data[field])
     
-    if serializer.is_valid():
-        settings = serializer.save(updated_by=request.user)
-        return Response(AdminSettingsSerializer(settings).data)
+    settings.save()
     
-    return Response(serializer.errors, status=400)
+    return Response({'message': 'Settings updated successfully'})
+
 
 # ============================================================================
 # DATA EXPORT
@@ -1072,115 +933,108 @@ def admin_settings_update(request):
 @permission_classes([IsAdminUser])
 def admin_export_ads(request):
     """Export ads data to CSV."""
-    
     import csv
     from django.http import HttpResponse
     
-    format_type = request.GET.get('format', 'csv')
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="ads_export.csv"'
     
-    ads = Ad.objects.exclude(status='deleted').select_related(
-        'user', 'category', 'city', 'state'
-    ).order_by('-created_at')
+    writer = csv.writer(response)
+    writer.writerow(['ID', 'Title', 'User', 'Category', 'City', 'State', 'Price', 
+                     'Status', 'Plan', 'Views', 'Created At'])
     
-    if format_type == 'csv':
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="ads_export.csv"'
-        
-        writer = csv.writer(response)
+    ads = Ad.objects.select_related('user', 'category', 'city', 'state').all()
+    
+    for ad in ads:
         writer.writerow([
-            'ID', 'Title', 'Description', 'Price', 'Status', 'Plan',
-            'Category', 'City', 'State', 'User Email', 'Views', 'Contacts',
-            'Created At', 'Updated At'
+            ad.id,
+            ad.title,
+            ad.user.email,
+            ad.category.name,
+            ad.city.name,
+            ad.state.name,
+            ad.price,
+            ad.status,
+            ad.plan,
+            ad.view_count,
+            ad.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         ])
-        
-        for ad in ads:
-            writer.writerow([
-                ad.id, ad.title, ad.description, ad.price, ad.status, ad.plan,
-                ad.category.name, ad.city.name, ad.state.name, ad.user.email,
-                ad.view_count, ad.contact_count, ad.created_at, ad.updated_at
-            ])
-        
-        return response
     
-    elif format_type == 'json':
-        import json
-        data = AdminAdSerializer(ads, many=True).data
-        
-        response = HttpResponse(
-            json.dumps(data, indent=2, default=str),
-            content_type='application/json'
-        )
-        response['Content-Disposition'] = 'attachment; filename="ads_export.json"'
-        return response
+    return response
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_export_users(request):
     """Export users data to CSV."""
-    
     import csv
     from django.http import HttpResponse
-    
-    users = User.objects.all().order_by('-created_at')
     
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="users_export.csv"'
     
     writer = csv.writer(response)
-    writer.writerow([
-        'ID', 'Email', 'First Name', 'Last Name', 'Phone',
-        'Is Active', 'Is Suspended', 'Email Verified',
-        'Total Ads', 'Created At', 'Last Login'
-    ])
+    writer.writerow(['ID', 'Email', 'Name', 'Phone', 'Status', 'Total Ads', 
+                     'Joined Date'])
+    
+    users = User.objects.prefetch_related('ads').all()
     
     for user in users:
+        status = 'Active'
+        if not user.is_active:
+            status = 'Banned'
+        elif user.is_suspended:
+            status = 'Suspended'
+        
         writer.writerow([
-            user.id, user.email, user.first_name, user.last_name, user.phone,
-            user.is_active, user.is_suspended, user.email_verified,
-            user.ads.exclude(status='deleted').count(),
-            user.created_at, user.last_login
+            user.id,
+            user.email,
+            user.get_full_name(),
+            user.phone or '',
+            status,
+            user.ads.count(),
+            user.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         ])
     
     return response
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_export_reports(request):
     """Export reports data to CSV."""
-    
     import csv
     from django.http import HttpResponse
-    
-    reports = AdReport.objects.all().select_related(
-        'ad', 'reported_by', 'reviewed_by'
-    ).order_by('-created_at')
     
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="reports_export.csv"'
     
     writer = csv.writer(response)
-    writer.writerow([
-        'ID', 'Ad Title', 'Reason', 'Description', 'Reporter Email',
-        'Is Reviewed', 'Reviewer Email', 'Admin Notes',
-        'Created At', 'Reviewed At'
-    ])
+    writer.writerow(['ID', 'Ad ID', 'Ad Title', 'Reported By', 'Reason', 
+                     'Description', 'Status', 'Reviewed By', 'Created At'])
+    
+    reports = AdReport.objects.select_related('ad', 'reported_by', 'reviewed_by').all()
     
     for report in reports:
         writer.writerow([
-            report.id, report.ad.title, report.get_reason_display(), 
-            report.description, report.reported_by.email,
-            report.is_reviewed, 
+            report.id,
+            report.ad.id,
+            report.ad.title,
+            report.reported_by.email if report.reported_by else 'Anonymous',
+            report.get_reason_display(),
+            report.description,
+            'Reviewed' if report.is_reviewed else 'Pending',
             report.reviewed_by.email if report.reviewed_by else '',
-            report.admin_notes, report.created_at, report.reviewed_at
+            report.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         ])
     
     return response
+
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_export_analytics(request):
     """Export analytics data to CSV."""
-    
     import csv
     from django.http import HttpResponse
     
@@ -1188,85 +1042,63 @@ def admin_export_analytics(request):
     end_date = timezone.now()
     start_date = end_date - timedelta(days=days)
     
-    # Get daily stats
-    daily_stats = []
-    current_date = start_date
-    
-    while current_date <= end_date:
-        day_ads = Ad.objects.filter(
-            created_at__date=current_date.date()
-        ).count()
-        
-        day_users = User.objects.filter(
-            created_at__date=current_date.date()
-        ).count()
-        
-        daily_stats.append({
-            'date': current_date.date(),
-            'new_ads': day_ads,
-            'new_users': day_users
-        })
-        
-        current_date += timedelta(days=1)
-    
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="analytics_export.csv"'
     
     writer = csv.writer(response)
-    writer.writerow(['Date', 'New Ads', 'New Users'])
+    writer.writerow(['Date', 'New Ads', 'New Users', 'Views', 'Contacts'])
     
-    for stat in daily_stats:
-        writer.writerow([stat['date'], stat['new_ads'], stat['new_users']])
+    # Daily aggregation
+    dates = []
+    current_date = start_date.date()
+    while current_date <= end_date.date():
+        dates.append(current_date)
+        current_date += timedelta(days=1)
+    
+    for date in dates:
+        new_ads = Ad.objects.filter(created_at__date=date).count()
+        new_users = User.objects.filter(created_at__date=date).count()
+        views = AdView.objects.filter(viewed_at__date=date).count()
+        contacts = AdContact.objects.filter(contacted_at__date=date).count()
+        
+        writer.writerow([
+            date.strftime('%Y-%m-%d'),
+            new_ads,
+            new_users,
+            views,
+            contacts,
+        ])
     
     return response
 
+
 # ============================================================================
-# CACHE MANAGEMENT
+# SYSTEM UTILITIES
 # ============================================================================
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_clear_cache(request):
     """Clear application cache."""
-    
     from django.core.cache import cache
-    
-    try:
-        cache.clear()
-        return Response({'message': 'Cache cleared successfully'})
-    
-    except Exception as e:
-        return Response({'error': f'Failed to clear cache: {str(e)}'}, status=500)
+    cache.clear()
+    return Response({'message': 'Cache cleared successfully'})
 
-@api_view(['GET', 'POST'])
+
+@api_view(['POST'])
 @permission_classes([IsAdminUser])
 def admin_maintenance_mode(request):
-    """Get or set maintenance mode status."""
+    """Toggle maintenance mode."""
+    settings = AdminSettings.objects.first()
+    if not settings:
+        settings = AdminSettings.objects.create()
     
-    from django.core.cache import cache
+    settings.maintenance_mode = not settings.maintenance_mode
+    settings.save()
     
-    if request.method == 'GET':
-        # Check if maintenance mode is enabled
-        maintenance_enabled = cache.get('maintenance_mode', False)
-        return Response({
-            'maintenance_mode': maintenance_enabled,
-            'message': cache.get('maintenance_message', 'Site under maintenance')
-        })
+    status = 'enabled' if settings.maintenance_mode else 'disabled'
     
-    elif request.method == 'POST':
-        enabled = request.data.get('enabled', False)
-        message = request.data.get('message', 'Site under maintenance')
-        
-        if enabled:
-            cache.set('maintenance_mode', True, timeout=None)
-            cache.set('maintenance_message', message, timeout=None)
-            action_desc = 'Enabled maintenance mode'
-        else:
-            cache.delete('maintenance_mode')
-            cache.delete('maintenance_message')
-            action_desc = 'Disabled maintenance mode'
-        
-        return Response({
-            'message': action_desc,
-            'maintenance_mode': enabled
-        })
+    return Response({
+        'message': f'Maintenance mode {status}',
+        'maintenance_mode': settings.maintenance_mode
+    })

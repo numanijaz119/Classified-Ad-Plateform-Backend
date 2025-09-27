@@ -1,34 +1,23 @@
 # administrator/urls.py
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
 
+# Create router for ViewSets
+router = DefaultRouter()
+router.register(r'ads', views.AdminAdViewSet, basename='admin-ads')
+router.register(r'users', views.AdminUserViewSet, basename='admin-users')
+router.register(r'reports', views.AdminReportViewSet, basename='admin-reports')
+router.register(r'banners', views.AdminBannerViewSet, basename='admin-banners')
+
 urlpatterns = [
+    # Include router URLs
+    path('', include(router.urls)),
+    
     # ========================================================================
     # DASHBOARD
     # ========================================================================
-    path('dashboard/stats/', views.admin_dashboard_stats, name='admin-dashboard-stats'),
-    
-    # ========================================================================
-    # ADS MANAGEMENT
-    # ========================================================================
-    path('ads/', views.admin_ads_list, name='admin-ads-list'),
-    path('ads/<int:ad_id>/action/', views.admin_ad_action, name='admin-ad-action'),
-    path('ads/bulk-action/', views.admin_bulk_ad_action, name='admin-bulk-ad-action'),
-    
-    # ========================================================================
-    # USER MANAGEMENT
-    # ========================================================================
-    path('users/', views.admin_users_list, name='admin-users-list'),
-    path('users/<int:user_id>/action/', views.admin_user_action, name='admin-user-action'),
-    path('users/<int:user_id>/activity/', views.admin_user_activity, name='admin-user-activity'),
-    path('users/bulk-action/', views.admin_bulk_user_action, name='admin-bulk-user-action'),
-    
-    # ========================================================================
-    # REPORTS MANAGEMENT
-    # ========================================================================
-    path('reports/', views.admin_reports_list, name='admin-reports-list'),
-    path('reports/<int:report_id>/action/', views.admin_report_action, name='admin-report-action'),
-    path('reports/bulk-action/', views.admin_bulk_report_action, name='admin-bulk-report-action'),
+    path('dashboard/stats/', views.AdminDashboardStatsView.as_view(), name='admin-dashboard-stats'),
     
     # ========================================================================
     # ANALYTICS
@@ -40,18 +29,10 @@ urlpatterns = [
     path('analytics/categories/', views.admin_analytics_categories, name='admin-analytics-categories'),
     
     # ========================================================================
-    # BANNER MANAGEMENT
-    # ========================================================================
-    path('banners/', views.admin_banners_list, name='admin-banners-list'),
-    path('banners/<int:banner_id>/', views.admin_banner_detail, name='admin-banner-detail'),
-    path('banners/<int:banner_id>/toggle/', views.admin_banner_toggle, name='admin-banner-toggle'),
-    path('banners/<int:banner_id>/analytics/', views.admin_banner_analytics, name='admin-banner-analytics'),
-    
-    # ========================================================================
     # CONTENT MANAGEMENT
     # ========================================================================
-    path('states/', views.admin_states_list, name='admin-states-list'),
-    path('categories/', views.admin_categories_stats, name='admin-categories-stats'),
+    path('states/', views.AdminStateListView.as_view(), name='admin-states-list'),
+    path('categories/stats/', views.AdminCategoryStatsView.as_view(), name='admin-categories-stats'),
     path('categories/create/', views.admin_category_create, name='admin-category-create'),
     path('categories/<int:category_id>/', views.admin_category_detail, name='admin-category-detail'),
     path('cities/create/', views.admin_city_create, name='admin-city-create'),
@@ -77,3 +58,58 @@ urlpatterns = [
     path('cache/clear/', views.admin_clear_cache, name='admin-clear-cache'),
     path('maintenance/', views.admin_maintenance_mode, name='admin-maintenance-mode'),
 ]
+
+"""
+ADMIN API ENDPOINTS (Class-Based Views):
+
+ADS MANAGEMENT (ViewSet):
+GET    /api/administrator/ads/                    - List ads with filters
+GET    /api/administrator/ads/{id}/               - Get ad detail
+POST   /api/administrator/ads/{id}/action/        - Approve/reject/delete/feature/unfeature ad
+POST   /api/administrator/ads/bulk_action/        - Bulk actions on ads
+
+Filters: ?status=pending&state=IL&category=1&plan=featured
+Search: ?search=keyword
+Sort: ?ordering=-created_at
+
+USER MANAGEMENT (ViewSet):
+GET    /api/administrator/users/                  - List users with filters
+GET    /api/administrator/users/{id}/             - Get user detail
+POST   /api/administrator/users/{id}/action/      - Ban/suspend/activate user
+GET    /api/administrator/users/{id}/activity/    - Get user activity logs
+POST   /api/administrator/users/bulk_action/      - Bulk actions on users
+
+Filters: ?status=active&email_verified=true&has_ads=true
+Search: ?search=email
+Sort: ?ordering=-created_at
+
+REPORTS MANAGEMENT (ViewSet):
+GET    /api/administrator/reports/                - List reports with filters
+GET    /api/administrator/reports/{id}/           - Get report detail
+POST   /api/administrator/reports/{id}/action/    - Approve/dismiss report
+POST   /api/administrator/reports/bulk_action/    - Bulk actions on reports
+
+Filters: ?status=pending&reason=spam
+Sort: ?ordering=-created_at
+
+BANNER MANAGEMENT (ViewSet):
+GET    /api/administrator/banners/                - List banners
+POST   /api/administrator/banners/                - Create banner
+GET    /api/administrator/banners/{id}/           - Get banner detail
+PUT    /api/administrator/banners/{id}/           - Update banner
+DELETE /api/administrator/banners/{id}/           - Delete banner
+POST   /api/administrator/banners/{id}/toggle/    - Toggle banner active status
+GET    /api/administrator/banners/{id}/analytics/ - Get banner analytics
+
+Filters: ?is_active=true&placement=homepage&state=IL
+Sort: ?ordering=-created_at
+
+All endpoints use proper pagination from core.pagination:
+- LargeResultsSetPagination (50 per page) for ads, users, reports
+- StandardResultsSetPagination (20 per page) for banners
+
+All endpoints support:
+- DjangoFilterBackend for filtering
+- SearchFilter for text search
+- OrderingFilter for sorting
+"""
