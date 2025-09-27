@@ -29,7 +29,7 @@ from .serializers import (
     ChangePasswordSerializer
 )
 from core.utils import get_client_ip
-from core.email_utils import send_verification_email, send_password_reset_email, send_welcome_email
+from core.email_utils import send_verification_email, send_password_reset_email
 
 logger = logging.getLogger(__name__)
 
