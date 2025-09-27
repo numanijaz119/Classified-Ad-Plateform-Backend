@@ -14,6 +14,7 @@ import logging
 from core.simple_mixins import StateAwareViewMixin
 from core.search_mixins import SearchFilterMixin
 from core.pagination import SearchResultsPagination
+from .filters import PublicAdFilter, UserAdFilter
 
 from .models import Ad, AdImage, AdView, AdContact, AdFavorite, AdReport
 from .serializers import (
@@ -43,6 +44,18 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
     # State filtering configuration
     state_field_path = 'state__code'
     allow_cross_state = True  # Allow cross-state search when requested
+
+    # Search configuration (DRF's SearchFilter)
+    search_fields = [
+        'title',
+        'description',
+        'keywords',
+        'category__name',
+    ]
+    
+    # Ordering configuration
+    ordering_fields = ['created_at', 'title', 'price', 'view_count']
+    ordering = ['-created_at']
     
     def get_queryset(self):
         """Get queryset based on action and user with state filtering."""
@@ -65,7 +78,7 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
             if self.action == 'list':
                 queryset = queryset.order_by('-plan', '-created_at')
             elif self.action == 'featured':
-                queryset = queryset.featured()
+                queryset = queryset.filter(plan='featured')
             
             return queryset
         
