@@ -5,6 +5,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
 from django.utils import timezone
 from core.simple_mixins import StateAwareViewMixin
+from core.pagination import StandardResultsSetPagination
 from .models import State, City, Category
 from .serializers import (
     StateSerializer, 
@@ -51,6 +52,7 @@ class CityListView(StateAwareViewMixin, generics.ListAPIView):
     queryset = City.objects.filter(is_active=True).select_related('state')
     serializer_class = CitySerializer
     permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['is_major']
     search_fields = ['name']
@@ -80,6 +82,7 @@ class CategoryListView(StateAwareViewMixin, generics.ListAPIView):
     
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ['name', 'sort_order', 'created_at']
     ordering = ['sort_order', 'name']

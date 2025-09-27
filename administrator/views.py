@@ -1,6 +1,6 @@
 # administrator/views.py
-from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework import generics, status, viewsets
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from django.db.models import Count, Sum, Q, Avg, F
@@ -9,6 +9,9 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
+from core.simple_mixins import AdminViewMixin
+from core.search_mixins import SearchFilterMixin
+from core.pagination import LargeResultsSetPagination
 
 from ads.models import Ad, AdView, AdContact, AdFavorite, AdReport
 from accounts.models import User
@@ -91,161 +94,197 @@ def admin_dashboard_stats(request):
 # ADS MANAGEMENT
 # ============================================================================
 
-@api_view(['GET'])
-@permission_classes([IsAdminUser])
-def admin_ads_list(request):
-    """Get ads list for admin with filtering."""
+class AdminAdViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Admin ViewSet for managing ads with filtering and search."""
     
-    # Get filters
-    state_filter = request.query_params.get('state')
-    status_filter = request.query_params.get('status', 'all')
-    city_filter = request.query_params.get('city')
-    search = request.query_params.get('search', '')
+    serializer_class = AdminAdSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = LargeResultsSetPagination
     
-    # Base queryset
-    queryset = Ad.objects.exclude(status='deleted').select_related(
-        'user', 'category', 'city', 'state'
-    )
+    # State filtering configuration for admin
+    state_field_path = 'state__code'
     
-    # Apply filters
-    if state_filter:
-        queryset = queryset.filter(state__code__iexact=state_filter)
+    def get_queryset(self):
+        """Get ads queryset with admin filtering."""
+        return Ad.objects.exclude(status='deleted').select_related(
+            'user', 'category', 'city', 'state'
+        ).prefetch_related('images')
     
-    if status_filter != 'all':
-        queryset = queryset.filter(status=status_filter)
+    def get_filterset_class(self):
+        """Return admin filter class."""
+        from ads.filters import AdminAdFilter
+        return AdminAdFilter
     
-    if city_filter:
-        queryset = queryset.filter(city__name__icontains=city_filter)
-    
-    if search:
-        queryset = queryset.filter(
-            Q(title__icontains=search) |
-            Q(user__email__icontains=search) |
-            Q(user__first_name__icontains=search) |
-            Q(user__last_name__icontains=search)
-        )
-    
-    # Order by newest first
-    queryset = queryset.order_by('-created_at')
-    
-    # Pagination
-    page_size = int(request.query_params.get('page_size', 20))
-    page = int(request.query_params.get('page', 1))
-    paginator = Paginator(queryset, page_size)
-    page_obj = paginator.get_page(page)
-    
-    # Serialize data
-    ads_data = AdminAdSerializer(page_obj, many=True).data
-    
-    return Response({
-        'ads': ads_data,
-        'total_count': paginator.count,
-        'page': page,
-        'page_size': page_size,
-        'total_pages': paginator.num_pages,
-        'has_next': page_obj.has_next(),
-        'has_previous': page_obj.has_previous(),
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_ad_action(request, ad_id):
-    """Perform actions on ads (approve, reject, delete, feature)."""
-    
-    ad = get_object_or_404(Ad, id=ad_id)
-    action = request.data.get('action')
-    reason = request.data.get('reason', '')
-    admin_notes = request.data.get('admin_notes', '')
-    
-    if action == 'approve':
-        ad.status = 'approved'
-        ad.approved_by = request.user
-        ad.approved_at = timezone.now()
-        message = 'Ad approved successfully'
+    @action(detail=True, methods=['post'])
+    def action(self, request, pk=None):
+        """Perform actions on ads (approve, reject, delete, feature)."""
+        ad = self.get_object()
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
+        admin_notes = request.data.get('admin_notes', '')
         
-    elif action == 'reject':
-        ad.status = 'rejected'
-        ad.rejection_reason = reason or 'Rejected by admin'
-        ad.admin_notes = admin_notes
-        message = 'Ad rejected successfully'
-        
-    elif action == 'delete':
-        ad.status = 'deleted'
-        ad.admin_notes = admin_notes
-        message = 'Ad deleted successfully'
-        
-    elif action == 'feature':
-        ad.plan = 'featured'
-        ad.featured_expires_at = timezone.now() + timedelta(days=30)
-        message = 'Ad made featured successfully'
-        
-    elif action == 'unfeature':
-        ad.plan = 'free'
-        ad.featured_expires_at = None
-        message = 'Ad removed from featured successfully'
-        
-    else:
-        return Response({'error': 'Invalid action'}, status=400)
-    
-    ad.save()
-    
-    return Response({
-        'message': message,
-        'ad_status': ad.status,
-        'ad_plan': ad.plan
-    })
-
-@api_view(['POST'])
-@permission_classes([IsAdminUser])
-def admin_bulk_ad_action(request):
-    """Perform bulk actions on multiple ads."""
-    
-    ad_ids = request.data.get('ad_ids', [])
-    action = request.data.get('action')
-    reason = request.data.get('reason', '')
-    admin_notes = request.data.get('admin_notes', '')
-    
-    if not ad_ids or action not in ['approve', 'reject', 'delete', 'feature', 'unfeature']:
-        return Response({'error': 'Invalid data provided'}, status=400)
-    
-    ads = Ad.objects.filter(id__in=ad_ids)
-    
-    if not ads.exists():
-        return Response({'error': 'No ads found with provided IDs'}, status=404)
-    
-    updated_count = 0
-    
-    for ad in ads:
         if action == 'approve':
             ad.status = 'approved'
             ad.approved_by = request.user
             ad.approved_at = timezone.now()
+            message = 'Ad approved successfully'
+            
         elif action == 'reject':
             ad.status = 'rejected'
-            ad.rejection_reason = reason or 'Bulk rejected by admin'
+            ad.rejection_reason = reason or 'Rejected by admin'
             ad.admin_notes = admin_notes
+            message = 'Ad rejected successfully'
+            
         elif action == 'delete':
             ad.status = 'deleted'
             ad.admin_notes = admin_notes
+            message = 'Ad deleted successfully'
+            
         elif action == 'feature':
             ad.plan = 'featured'
             ad.featured_expires_at = timezone.now() + timedelta(days=30)
+            message = 'Ad made featured successfully'
+            
         elif action == 'unfeature':
             ad.plan = 'free'
             ad.featured_expires_at = None
+            message = 'Ad removed from featured successfully'
+            
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
         
         ad.save()
-        updated_count += 1
+        
+        return Response({
+            'message': message,
+            'ad_status': ad.status,
+            'ad_plan': ad.plan
+        })
     
-    return Response({
-        'message': f'Successfully {action}ed {updated_count} ads',
-        'updated_count': updated_count
-    })
+    @action(detail=False, methods=['post'])
+    def bulk_action(self, request):
+        """Perform bulk actions on multiple ads."""
+        ad_ids = request.data.get('ad_ids', [])
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
+        admin_notes = request.data.get('admin_notes', '')
+        
+        if not ad_ids or action not in ['approve', 'reject', 'delete', 'feature', 'unfeature']:
+            return Response({'error': 'Invalid data provided'}, status=400)
+        
+        ads = Ad.objects.filter(id__in=ad_ids)
+        
+        if not ads.exists():
+            return Response({'error': 'No ads found with provided IDs'}, status=404)
+        
+        updated_count = 0
+        
+        for ad in ads:
+            if action == 'approve':
+                ad.status = 'approved'
+                ad.approved_by = request.user
+                ad.approved_at = timezone.now()
+            elif action == 'reject':
+                ad.status = 'rejected'
+                ad.rejection_reason = reason or 'Rejected by admin'
+                ad.admin_notes = admin_notes
+            elif action == 'delete':
+                ad.status = 'deleted'
+                ad.admin_notes = admin_notes
+            elif action == 'feature':
+                ad.plan = 'featured'
+                ad.featured_expires_at = timezone.now() + timedelta(days=30)
+            elif action == 'unfeature':
+                ad.plan = 'free'
+                ad.featured_expires_at = None
+            
+            ad.save()
+            updated_count += 1
+        
+        return Response({
+            'message': f'{updated_count} ads updated successfully',
+            'updated_count': updated_count
+        })
+
 
 # ============================================================================
 # USER MANAGEMENT
 # ============================================================================
 
+class AdminUserViewSet(AdminViewMixin, SearchFilterMixin, viewsets.ReadOnlyModelViewSet):
+    """Admin ViewSet for managing users with filtering and search."""
+    
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsAdminUser]
+    pagination_class = LargeResultsSetPagination
+    
+    def get_queryset(self):
+        """Get users queryset with admin filtering."""
+        return User.objects.select_related().prefetch_related('ads')
+    
+    @action(detail=True, methods=['post'])
+    def action(self, request, pk=None):
+        """Ban, suspend, or activate users."""
+        user = self.get_object()
+        action = request.data.get('action')
+        reason = request.data.get('reason', '')
+        
+        if action == 'ban':
+            user.is_active = False
+            user.is_suspended = True
+            user.suspension_reason = reason
+            message = 'User banned successfully'
+            
+        elif action == 'suspend':
+            user.is_suspended = True
+            user.suspension_reason = reason
+            message = 'User suspended successfully'
+            
+        elif action == 'activate':
+            user.is_active = True
+            user.is_suspended = False
+            user.suspension_reason = ''
+            message = 'User activated successfully'
+            
+        else:
+            return Response({'error': 'Invalid action'}, status=400)
+        
+        user.save()
+        
+        return Response({
+            'message': message,
+            'user_status': {
+                'is_active': user.is_active,
+                'is_suspended': user.is_suspended,
+                'suspension_reason': user.suspension_reason
+            }
+        })
+    
+    @action(detail=True, methods=['get'])
+    def activity(self, request, pk=None):
+        """Get user activity logs."""
+        user = self.get_object()
+        
+        # Get user's ads activity
+        ads_data = {
+            'total_ads': user.ads.exclude(status='deleted').count(),
+            'active_ads': user.ads.filter(status='approved').count(),
+            'pending_ads': user.ads.filter(status='pending').count(),
+            'rejected_ads': user.ads.filter(status='rejected').count(),
+            'featured_ads': user.ads.filter(plan='featured').count(),
+        }
+        
+        # Get recent ads
+        recent_ads = user.ads.exclude(status='deleted').order_by('-created_at')[:10]
+        recent_ads_data = AdminAdSerializer(recent_ads, many=True).data
+        
+        return Response({
+            'user': AdminUserSerializer(user).data,
+            'ads_statistics': ads_data,
+            'recent_ads': recent_ads_data,
+        })
+
+# Legacy function-based view (to be removed after URL updates)
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
 def admin_users_list(request):

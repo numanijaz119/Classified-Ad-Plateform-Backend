@@ -12,6 +12,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from datetime import timedelta, datetime
 import logging
 from core.simple_mixins import StateAwareViewMixin
+from core.search_mixins import SearchFilterMixin
+from core.pagination import SearchResultsPagination
 
 from .models import Ad, AdImage, AdView, AdContact, AdFavorite, AdReport
 from .serializers import (
@@ -27,21 +29,16 @@ from .serializers import (
     DashboardStatsSerializer,
     AdImageSerializer
 )
-from .filters import PublicAdFilter, UserAdFilter
 from core.permissions import IsOwnerOrReadOnly
 from core.utils import get_client_ip, detect_device_type
 
 logger = logging.getLogger(__name__)
 
-class AdViewSet(StateAwareViewMixin, ModelViewSet):
+class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
     """Main ViewSet for Ad operations with state-aware filtering and search."""
     
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['title', 'description']
-    
-    # Simplified ordering for users: newest, oldest, alphabetical
-    ordering_fields = ['created_at', 'title']
-    ordering = ['-created_at']  # Default: newest first
+    # Pagination configuration
+    pagination_class = SearchResultsPagination
     
     # State filtering configuration
     state_field_path = 'state__code'
@@ -110,22 +107,8 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
             return [AllowAny()]
     
     def list(self, request, *args, **kwargs):
-        """List ads with simplified sorting options."""
+        """List ads - sorting handled by SearchFilterMixin."""
         queryset = self.filter_queryset(self.get_queryset())
-        
-        # Handle custom sorting
-        sort_by = request.query_params.get('sort_by', 'newest')
-        
-        if sort_by == 'oldest':
-            queryset = queryset.order_by('created_at')
-        elif sort_by == 'alphabetical':
-            queryset = queryset.order_by('title')
-        elif sort_by == 'price_low':
-            queryset = queryset.order_by('price')
-        elif sort_by == 'price_high':
-            queryset = queryset.order_by('-price')
-        else:  # newest (default)
-            queryset = queryset.order_by('-created_at')
         
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -191,20 +174,13 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def my_ads(self, request):
-        """Get current user's ads with simplified filtering."""
+        """Get current user's ads - sorting handled by SearchFilterMixin."""
         queryset = self.filter_queryset(self.get_queryset())
         
-        # Handle sorting for user's ads
-        sort_by = request.query_params.get('sort_by', 'newest')
-        
-        if sort_by == 'oldest':
-            queryset = queryset.order_by('created_at')
-        elif sort_by == 'alphabetical':
-            queryset = queryset.order_by('title')
-        elif sort_by == 'status':
+        # Handle special status sorting for user's ads
+        sort_by = request.query_params.get('sort_by')
+        if sort_by == 'status':
             queryset = queryset.order_by('status', '-created_at')
-        else:  # newest (default)
-            queryset = queryset.order_by('-created_at')
         
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -216,27 +192,13 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def search(self, request):
-        """Advanced search with state-aware filtering and cross-state capabilities."""
+        """Advanced search - sorting handled by SearchFilterMixin."""
         queryset = self.filter_queryset(self.get_queryset())
         
         # Add state aggregation for cross-state searches
+        state_breakdown = None
         if request.query_params.get('all_states') == 'true':
             state_breakdown = self.add_state_aggregation(queryset)
-            
-        # Handle sorting for search results
-        sort_by = request.query_params.get('sort_by', 'relevance')
-        
-        if sort_by == 'oldest':
-            queryset = queryset.order_by('created_at')
-        elif sort_by == 'alphabetical':
-            queryset = queryset.order_by('title')
-        elif sort_by == 'price_low':
-            queryset = queryset.order_by('price')
-        elif sort_by == 'price_high':
-            queryset = queryset.order_by('-price')
-        elif sort_by == 'newest':
-            queryset = queryset.order_by('-created_at')
-        # Default 'relevance' keeps the search ranking
         
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -244,7 +206,7 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
             response_data = self.get_paginated_response(serializer.data).data
             
             # Add state breakdown for cross-state searches
-            if request.query_params.get('all_states') == 'true':
+            if state_breakdown:
                 response_data['state_breakdown'] = state_breakdown
             
             return Response(response_data)
@@ -253,7 +215,7 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
         response_data = serializer.data
         
         # Add state breakdown for cross-state searches
-        if request.query_params.get('all_states') == 'true':
+        if state_breakdown:
             response_data = {
                 'results': response_data,
                 'state_breakdown': state_breakdown
@@ -261,20 +223,16 @@ class AdViewSet(StateAwareViewMixin, ModelViewSet):
         
         return Response(response_data)
     
+    def add_state_aggregation(self, queryset):
+        """Add state breakdown for cross-state searches."""
+        return queryset.values('state__code', 'state__name').annotate(
+            count=Count('id')
+        ).order_by('-count')
+    
     @action(detail=False, methods=['get'])
     def featured(self, request):
-        """Get only featured ads."""
+        """Get only featured ads - sorting handled by SearchFilterMixin."""
         queryset = self.filter_queryset(self.get_queryset())
-        
-        # Handle sorting for featured ads
-        sort_by = request.query_params.get('sort_by', 'newest')
-        
-        if sort_by == 'oldest':
-            queryset = queryset.order_by('created_at')
-        elif sort_by == 'alphabetical':
-            queryset = queryset.order_by('title')
-        else:  # newest (default)
-            queryset = queryset.order_by('-created_at')
         
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -399,6 +357,7 @@ class AdFavoriteViewSet(ModelViewSet):
     serializer_class = AdFavoriteSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'delete']
+    pagination_class = SearchResultsPagination
     
     def get_queryset(self):
         """Get user's favorites."""
@@ -467,6 +426,7 @@ class AdReportViewSet(ModelViewSet):
     serializer_class = AdReportSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post']
+    pagination_class = SearchResultsPagination
     
     def get_queryset(self):
         """Get user's reports."""
