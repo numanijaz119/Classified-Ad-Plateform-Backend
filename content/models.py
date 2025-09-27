@@ -88,6 +88,13 @@ class City(models.Model):
         related_name='cities',
         verbose_name=_('State')
     )
+    photo = models.ImageField(
+        _('City Photo'),
+        upload_to=generate_unique_filename,
+        null=True,
+        blank=True,
+        help_text=_('City photo/banner image for display')
+    )
     
     # Optional geographic data
     latitude = models.DecimalField(

@@ -20,26 +20,48 @@ class StateSerializer(serializers.ModelSerializer):
         return obj.cities.filter(is_active=True).count()
 
 class CitySerializer(serializers.ModelSerializer):
-    """Serializer for City model."""
+    """Serializer for City model with photo."""
     
     state_name = serializers.CharField(source='state.name', read_only=True)
     state_code = serializers.CharField(source='state.code', read_only=True)
+    photo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = City
         fields = [
             'id', 'name', 'state', 'state_name', 'state_code',
+            'photo', 'photo_url',
             'latitude', 'longitude', 'is_major', 'is_active',
             'created_at'
         ]
-        read_only_fields = ['id', 'state_name', 'state_code', 'created_at']
+        read_only_fields = ['id', 'state_name', 'state_code', 'photo_url', 'created_at']
+    
+    def get_photo_url(self, obj):
+        """Get full URL for city photo."""
+        if obj.photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.photo.url)
+            return obj.photo.url
+        return None
 
 class CitySimpleSerializer(serializers.ModelSerializer):
     """Simple city serializer for dropdowns and lists."""
     
+    photo_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = City
-        fields = ['id', 'name']
+        fields = ['id', 'name', 'photo_url']
+    
+    def get_photo_url(self, obj):
+        """Get full URL for city photo."""
+        if obj.photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.photo.url)
+            return obj.photo.url
+        return None
 
 class StateSimpleSerializer(serializers.ModelSerializer):
     """Simple state serializer for dropdowns and lists."""

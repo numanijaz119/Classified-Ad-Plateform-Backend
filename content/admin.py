@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import State, City, Category
+from django.utils.html import format_html
 
 @admin.register(State)
 class StateAdmin(admin.ModelAdmin):
@@ -34,15 +35,18 @@ class StateAdmin(admin.ModelAdmin):
 class CityAdmin(admin.ModelAdmin):
     """Admin interface for City model."""
     
-    list_display = ['name', 'state', 'is_major', 'is_active', 'created_at']
+    list_display = ['name', 'state', 'photo_preview', 'is_major', 'is_active', 'created_at']  # ADDED photo_preview
     list_filter = ['state', 'is_major', 'is_active', 'created_at']
     search_fields = ['name', 'state__name']
-    readonly_fields = ['created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at', 'photo_preview']  # ADDED photo_preview
     ordering = ['state__name', '-is_major', 'name']
     
     fieldsets = (
         ('Basic Information', {
             'fields': ('name', 'state')
+        }),
+        ('Photo', {  # ADDED
+            'fields': ('photo', 'photo_preview')
         }),
         ('Geographic Data', {
             'fields': ('latitude', 'longitude'),
@@ -60,7 +64,16 @@ class CityAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """Optimize queryset with select_related."""
         return super().get_queryset(request).select_related('state')
-
+    
+    def photo_preview(self, obj):
+        """Display photo preview in admin."""
+        if obj.photo:
+            return format_html(
+                '<img src="{}" style="max-height: 100px; max-width: 200px;" />',
+                obj.photo.url
+            )
+        return '-'
+    photo_preview.short_description = 'Photo Preview'
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     """Admin interface for Category model."""
