@@ -84,7 +84,7 @@ class CategoryListView(StateAwareViewMixin, generics.ListAPIView):
     permission_classes = [AllowAny]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['parent', 'slug', 'id']
+    filterset_fields = ['slug', 'id']
     ordering_fields = ['name', 'sort_order', 'created_at']
     ordering = ['sort_order', 'name']
     cache_timeout = 1800  # 30 minutes cache

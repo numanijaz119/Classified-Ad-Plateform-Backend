@@ -54,6 +54,8 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
         'keywords',
         'category__name',
     ]
+    lookup_field = 'slug'
+    lookup_url_kwarg = 'slug'
     
     # Ordering configuration
     ordering_fields = ['created_at', 'title', 'price', 'view_count']

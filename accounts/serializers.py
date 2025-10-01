@@ -128,7 +128,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 'phone',
             'avatar', 'full_name', 'email_verified', 'is_active',
             'show_email', 'show_phone', 'email_notifications',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'google_id'
         )
         read_only_fields = ('id', 'email', 'email_verified', 'created_at', 'updated_at')
 

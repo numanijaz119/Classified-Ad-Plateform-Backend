@@ -160,11 +160,11 @@ class Ad(models.Model):
     
     # Status & Plan
     status = models.CharField(
-        _('Status'),
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='draft',
-        help_text=_('Current status of the ad')
+    max_length=20,
+    choices=STATUS_CHOICES,
+    default='pending',
+    help_text='Current status of the ad',
+    verbose_name='Status'
     )
     plan = models.CharField(
         _('Plan'),

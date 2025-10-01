@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from ads.models import Ad, AdReport
 from content.models import Category, State, City
 from .models import Banner, AdminSettings
+from ads.serializers import AdImageSerializer
 
 User = get_user_model()
 
@@ -20,6 +21,8 @@ class AdminAdSerializer(serializers.ModelSerializer):
     state_name = serializers.CharField(source='state.name', read_only=True)
     state_code = serializers.CharField(source='state.code', read_only=True)
     days_ago = serializers.SerializerMethodField()
+    images = AdImageSerializer(many=True, read_only=True)
+    primary_image = AdImageSerializer(read_only=True)
     
     class Meta:
         model = Ad
@@ -29,7 +32,7 @@ class AdminAdSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'expires_at',
             'user_name', 'user_email', 'category_name', 
             'city_name', 'state_name', 'state_code',
-            'rejection_reason', 'admin_notes', 'days_ago'
+            'rejection_reason', 'admin_notes', 'days_ago', 'images', 'primary_image'
         ]
     
     def get_days_ago(self, obj):

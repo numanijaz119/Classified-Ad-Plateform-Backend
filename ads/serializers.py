@@ -41,6 +41,7 @@ class AdListSerializer(serializers.ModelSerializer):
     display_price = serializers.CharField(read_only=True)
     time_since_posted = serializers.CharField(read_only=True)
     is_featured_active = serializers.BooleanField(read_only=True)
+    price_type = serializers.CharField(read_only=True) 
     
     class Meta:
         model = Ad
@@ -63,6 +64,7 @@ class AdDetailSerializer(serializers.ModelSerializer):
     time_since_posted = serializers.CharField(read_only=True)
     is_featured_active = serializers.BooleanField(read_only=True)
     contact_email_display = serializers.CharField(read_only=True)
+    price_type = serializers.CharField(read_only=True)
     
     # Analytics data (only for ad owner)
     analytics_data = serializers.SerializerMethodField()
@@ -95,23 +97,30 @@ class AdCreateSerializer(serializers.ModelSerializer):
         fields = [
             'title', 'description', 'price', 'price_type', 'condition',
             'contact_phone', 'contact_email', 'hide_phone', 'category',
-            'city', 'keywords', 'images'
+            'city', 'keywords', 'images', 'plan'
         ]
     
-    def validate_price(self, value):
+    def validate(self, data):
         """Validate price based on price_type."""
-        price_type = self.initial_data.get('price_type', 'fixed')
+        price_type = data.get('price_type', 'fixed')
+        price = data.get('price')
         
-        if price_type in ['contact', 'free', 'swap'] and value:
-            raise serializers.ValidationError(
-                "Price should not be set for this price type."
-            )
-        elif price_type in ['fixed', 'negotiable'] and not value:
-            raise serializers.ValidationError(
-                "Price is required for this price type."
-            )
+        # For contact/free/swap: price must be None
+        if price_type in ['contact', 'free', 'swap']:
+            if price and price > 0:
+                raise serializers.ValidationError({
+                    'price': f"Price must be empty when price type is '{price_type}'."
+                })
+            data['price'] = None  # Auto-fix
         
-        return value
+        # For fixed/negotiable: price is required
+        elif price_type in ['fixed', 'negotiable']:
+            if not price or price <= 0:
+                raise serializers.ValidationError({
+                    'price': f"Price is required when price type is '{price_type}'."
+                })
+        
+        return data
     
     def validate_category(self, value):
         """Ensure category is active."""
@@ -132,6 +141,7 @@ class AdCreateSerializer(serializers.ModelSerializer):
         # Set user and state from context
         validated_data['user'] = self.context['request'].user
         validated_data['state'] = validated_data['city'].state
+        validated_data['status'] = 'pending'
         
         # Create the ad
         ad = Ad.objects.create(**validated_data)
@@ -157,6 +167,31 @@ class AdUpdateSerializer(serializers.ModelSerializer):
             'city', 'keywords'
         ]
     
+    def validate(self, data):
+        """Validate price based on price_type."""
+        price_type = data.get('price_type', self.instance.price_type)
+        price = data.get('price')
+        
+        if price is None and 'price' not in data:
+            price = self.instance.price
+        
+        # For contact/free/swap: clear price
+        if price_type in ['contact', 'free', 'swap']:
+            if price and price > 0:
+                raise serializers.ValidationError({
+                    'price': f"Price must be empty when price type is '{price_type}'."
+                })
+            data['price'] = None
+        
+        # For fixed/negotiable: require price
+        elif price_type in ['fixed', 'negotiable']:
+            if not price or price <= 0:
+                raise serializers.ValidationError({
+                    'price': f"Price is required when price type is '{price_type}'."
+                })
+        
+        return data
+
     def validate_category(self, value):
         """Ensure category is active."""
         if not value.is_active:
