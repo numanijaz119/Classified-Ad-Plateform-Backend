@@ -668,8 +668,6 @@ def admin_analytics_categories(request):
         'categories': categories_data
     })
 
-
-# ============================================================================
 # BANNER MANAGEMENT
 # ============================================================================
 
@@ -680,7 +678,7 @@ class AdminBannerViewSet(AdminViewMixin, viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    filterset_fields = ['is_active', 'placement', 'state']
+    filterset_fields = ['is_active', 'position', 'banner_type']
     ordering_fields = ['created_at', 'title', 'impressions', 'clicks']
     ordering = ['-created_at']
     
