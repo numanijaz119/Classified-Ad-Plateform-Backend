@@ -8,3 +8,6 @@ Pillow
 python-decouple
 django-filter
 django-extensions
+channels
+channels-redis
+redis

@@ -50,6 +50,11 @@ class User(AbstractUser):
         default=True,
         help_text=_('Receive email notifications for important updates')
     )
+    email_message_notifications = models.BooleanField(  # NEW FIELD
+    _('Email Message Notifications'),
+    default=True,
+    help_text=_('Receive email notifications for new messages and conversations')
+    )
 
     # Email verification
     email_verified = models.BooleanField(default=False)

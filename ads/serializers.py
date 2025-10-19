@@ -95,10 +95,13 @@ class AdCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ad
         fields = [
+            'id',
+            'slug',
             'title', 'description', 'price', 'price_type', 'condition',
             'contact_phone', 'contact_email', 'hide_phone', 'category',
-            'city', 'keywords', 'images', 'plan'
+            'city', 'keywords', 'images', 'plan', 'status'
         ]
+        read_only_fields = ['id', 'slug', 'status']  
     
     def validate(self, data):
         """Validate price based on price_type."""

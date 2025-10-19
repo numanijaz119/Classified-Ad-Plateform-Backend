@@ -128,6 +128,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 'phone',
             'avatar', 'full_name', 'email_verified', 'is_active',
             'show_email', 'show_phone', 'email_notifications',
+            'email_message_notifications',
             'created_at', 'updated_at', 'google_id'
         )
         read_only_fields = ('id', 'email', 'email_verified', 'created_at', 'updated_at')
@@ -163,7 +164,7 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             'first_name', 'last_name', 'phone', 'avatar',
-            'show_email', 'show_phone', 'email_notifications'
+            'show_email', 'show_phone', 'email_notifications', 'email_message_notifications',
         )
     
     def validate_first_name(self, value):

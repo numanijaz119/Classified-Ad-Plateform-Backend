@@ -45,6 +45,8 @@ LOCAL_APPS = [
     'ads',
     'administrator',
     'core',
+    'messaging',
+
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -77,6 +79,8 @@ TEMPLATES = [
         },
     },
 ]
+
+EMAIL_TEMPLATE_DIR = BASE_DIR / 'messaging' / 'templates' / 'emails'
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
@@ -228,6 +232,12 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@desiloginil.com')
+
+# Notification settings
+NOTIFICATION_SETTINGS = {
+    'EMAIL_NOTIFICATIONS': True,
+    'IN_APP_NOTIFICATIONS': True,
+}
 
 # Google OAuth settings
 GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')

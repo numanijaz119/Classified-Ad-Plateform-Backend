@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>New Message - DesiLogIn</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f4;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background: linear-gradient(135deg, #f97316, #dc2626);
+        color: white;
+        text-align: center;
+        padding: 30px;
+        border-radius: 10px 10px 0 0;
+        margin: -20px -20px 20px -20px;
+      }
+      .message-box {
+        background-color: #f4f4f4;
+        border-left: 4px solid #f97316;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 4px;
+      }
+      .button {
+        display: inline-block;
+        background-color: #f97316;
+        color: white;
+        padding: 12px 24px;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: bold;
+        margin: 20px 0;
+      }
+      .footer {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+        font-size: 14px;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>💬 New Message</h1>
+      </div>
+
+      <h2>Hi {{ recipient_name }}!</h2>
+
+      <p>You have received a new message:</p>
+
+      <div class="message-box">
+        <p style="margin: 0">{{ message }}</p>
+      </div>
+
+      <p style="text-align: center">
+        <a href="{{ action_url }}" class="button">View Message</a>
+      </p>
+
+      <div class="footer">
+        <p>Best regards,<br />DesiLogIn Team</p>
+        <p>
+          <small
+            >You're receiving this because you have message notifications
+            enabled. You can update your preferences in your account
+            settings.</small
+          >
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
