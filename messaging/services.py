@@ -1,8 +1,6 @@
-# messaging/services.py
-from django.core.mail import send_mail
-from django.template.loader import render_to_string
 from django.conf import settings
 from .models import Notification
+from core.email_utils import EmailService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -43,47 +41,54 @@ class NotificationService:
     
     @staticmethod
     def _send_email_notification(notification, recipient):
-        """Send email notification."""
+        """Send email notification using existing EmailService."""
         
         try:
-            # Prepare email context
-            context = {
-                'recipient_name': recipient.get_full_name(),
-                'title': notification.title,
-                'message': notification.message,
-                'action_url': notification.action_url,
-                'site_url': f"https://{settings.ALLOWED_HOSTS[0]}" if settings.ALLOWED_HOSTS else 'http://localhost:5173',
+            # Map notification types to template names
+            template_map = {
+                'new_message': 'messaging/new_message',
+                'new_conversation': 'messaging/new_conversation',
+                'ad_approved': 'messaging/ad_approved',
+                'ad_rejected': 'messaging/ad_rejected',
+                'ad_expired': 'messaging/ad_expired',
+                'ad_expiring_soon': 'messaging/ad_expiring_soon',
+                'system': 'messaging/system_notification',
             }
             
-            # Render email template
-            html_message = render_to_string(
-                f'messaging/emails/{notification.notification_type}.html',
-                context
-            )
-            plain_message = render_to_string(
-                f'messaging/emails/{notification.notification_type}.txt',
-                context
-            )
+            template_name = template_map.get(notification.notification_type, 'messaging/generic')
             
-            # Send email
-            send_mail(
+            # Prepare context for email templates
+            context = {
+                'recipient_name': recipient.get_full_name(),
+                'user': recipient,
+                'title': notification.title,
+                'message': notification.message,
+                'notification': notification,
+                'action_url': notification.action_url,
+            }
+            
+            # Use existing EmailService to send email (maintains consistency)
+            success = EmailService.send_email(
                 subject=notification.title,
-                message=plain_message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[recipient.email],
-                html_message=html_message,
-                fail_silently=False,
+                template_name=template_name,
+                context=context,
+                fail_silently=True  # Don't break app if email fails
             )
             
-            notification.email_sent = True
-            notification.save(update_fields=['email_sent'])
-            
-            logger.info(f"Email notification sent to {recipient.email}")
+            if success:
+                notification.email_sent = True
+                notification.save(update_fields=['email_sent'])
+                logger.info(f"Email notification sent to {recipient.email}")
+            else:
+                logger.warning(f"Failed to send email notification to {recipient.email}")
             
         except Exception as e:
             logger.error(f"Failed to send email notification: {str(e)}")
     
-    # Specific notification creators
+    # =========================================================================
+    # SPECIFIC NOTIFICATION CREATORS
+    # =========================================================================
     
     @staticmethod
     def send_new_message_notification(recipient, sender, message, conversation):
