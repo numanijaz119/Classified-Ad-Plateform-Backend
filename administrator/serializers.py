@@ -7,6 +7,34 @@ from ads.serializers import AdImageSerializer
 
 User = get_user_model()
 
+
+class AdminLoginSerializer(serializers.Serializer):
+    """Serializer for admin login."""
+    
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class AdminTokenSerializer(serializers.Serializer):
+    """Serializer for token verification."""
+    
+    token = serializers.CharField()
+
+
+class AdminPasswordChangeSerializer(serializers.Serializer):
+    """Serializer for admin password change."""
+    
+    old_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    
+    def validate_new_password(self, value):
+        if len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        return value
+
 # ============================================================================
 # AD MANAGEMENT SERIALIZERS
 # ============================================================================

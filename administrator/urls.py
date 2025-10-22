@@ -2,6 +2,13 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from .auth_views import (
+    AdminLoginView,
+    AdminLogoutView,
+    AdminProfileView,
+    admin_verify_token,
+    admin_change_password,
+)
 
 # Create router for ViewSets
 router = DefaultRouter()
@@ -13,6 +20,14 @@ router.register(r'banners', views.AdminBannerViewSet, basename='admin-banners')
 urlpatterns = [
     # Include router URLs
     path('', include(router.urls)),
+
+    # Admin Authentication URLs
+    path('auth/login/', AdminLoginView.as_view(), name='admin-login'),
+    path('auth/logout/', AdminLogoutView.as_view(), name='admin-logout'),
+    path('auth/profile/', AdminProfileView.as_view(), name='admin-profile'),
+    path('auth/verify-token/', admin_verify_token, name='admin-verify-token'),
+    path('auth/change-password/', admin_change_password, name='admin-change-password'),
+    
     
     # ========================================================================
     # DASHBOARD
