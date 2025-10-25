@@ -228,6 +228,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://desiloginil.com",
+    "https://clasified-ad-plateform-cd74pcfc0-desi-logins-projects.vercel.app",
+    "https://clasified-ad-plateform.vercel.app"
 ]
 
 CORS_ALLOW_CREDENTIALS = True
