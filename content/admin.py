@@ -81,7 +81,7 @@ class CategoryAdmin(admin.ModelAdmin):
     list_display = ['name', 'icon', 'sort_order', 'is_active', 'get_ads_count_display', 'created_at']
     list_filter = ['is_active', 'created_at']
     search_fields = ['name', 'description']
-    readonly_fields = ['slug', 'created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at']
     ordering = ['sort_order', 'name']
     prepopulated_fields = {'slug': ('name',)}
     
