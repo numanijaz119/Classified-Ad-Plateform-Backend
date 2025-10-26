@@ -103,17 +103,13 @@ class CategorySimpleSerializer(serializers.ModelSerializer):
 
 
 class PublicBannerSerializer(serializers.ModelSerializer):
-    """Serializer for public banner display."""
-    
-    target_states = serializers.StringRelatedField(many=True, read_only=True)
-    target_categories = serializers.StringRelatedField(many=True, read_only=True)
+    """Serializer for public-facing banner ads"""
     
     class Meta:
         model = Banner
         fields = [
             'id',
             'title',
-            'description',
             'banner_type',
             'image',
             'html_content',
@@ -121,20 +117,18 @@ class PublicBannerSerializer(serializers.ModelSerializer):
             'position',
             'click_url',
             'open_new_tab',
-            'target_states',
-            'target_categories',
-            'priority'
         ]
-        read_only_fields = fields
-
-
-class BannerImpressionSerializer(serializers.Serializer):
-    """Serializer for tracking banner impressions."""
-    banner_id = serializers.IntegerField()
-    page_url = serializers.URLField(required=False, allow_blank=True)
+        read_only_fields = ['id']
     
+    def to_representation(self, instance):
+        """Ensure all required fields are present"""
+        data = super().to_representation(instance)
+        
+        # Ensure image field has full URL
+        if data.get('image'):
+            request = self.context.get('request')
+            if request and not data['image'].startswith('http'):
+                data['image'] = request.build_absolute_uri(data['image'])
+        
+        return data
 
-class BannerClickSerializer(serializers.Serializer):
-    """Serializer for tracking banner clicks."""
-    banner_id = serializers.IntegerField()
-    referrer = serializers.URLField(required=False, allow_blank=True)

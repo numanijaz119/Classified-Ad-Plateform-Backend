@@ -1,179 +1,79 @@
-# content/banner_views.py
 from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db.models import Q, F
-from administrator.models import Banner, BannerImpression, BannerClick
-from .serializers import (
-    PublicBannerSerializer,
-    BannerImpressionSerializer,
-    BannerClickSerializer
-)
+from django.db.models import Q
+from administrator.models import Banner
+from .serializers import PublicBannerSerializer
 
 
 class PublicBannerListView(generics.ListAPIView):
     """
-    Get active banners for public display.
-    Filters by position, state, and category.
+    Public API endpoint to fetch active banner ads
+    Supports filtering by position, state, and category
+    No authentication required
     """
     serializer_class = PublicBannerSerializer
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        """Get active banners based on filters."""
+        """
+        Filter banners based on query parameters and activity status
+        """
         queryset = Banner.objects.filter(is_active=True)
         
-        # Filter by current date
+        # Filter by current date range
         now = timezone.now()
         queryset = queryset.filter(
-            Q(start_date__lte=now) | Q(start_date__isnull=True),
-            Q(end_date__gte=now) | Q(end_date__isnull=True)
+            Q(start_date__isnull=True) | Q(start_date__lte=now)
+        ).filter(
+            Q(end_date__isnull=True) | Q(end_date__gte=now)
         )
         
         # Filter by position
-        position = self.request.GET.get('position')
+        position = self.request.query_params.get('position', None)
         if position:
             queryset = queryset.filter(position=position)
         
-        # Filter by state (show banners with no state targeting or matching state)
-        state = self.request.GET.get('state')
+        # Filter by state
+        state = self.request.query_params.get('state', None)
         if state:
+            # Show banners that either:
+            # 1. Have no state targeting (show to all)
+            # 2. Include this specific state
             queryset = queryset.filter(
-                Q(target_states__code=state) | Q(target_states__isnull=True)
+                Q(target_states__isnull=True) | 
+                Q(target_states__code=state)
             ).distinct()
-        else:
-            # If no state specified, only show banners with no state targeting
-            queryset = queryset.filter(target_states__isnull=True)
         
-        # Filter by category (show banners with no category targeting or matching category)
-        category = self.request.GET.get('category')
+        # Filter by category
+        category = self.request.query_params.get('category', None)
         if category:
             try:
                 category_id = int(category)
+                # Show banners that either:
+                # 1. Have no category targeting (show to all)
+                # 2. Include this specific category
                 queryset = queryset.filter(
-                    Q(target_categories__id=category_id) | Q(target_categories__isnull=True)
+                    Q(target_categories__isnull=True) |
+                    Q(target_categories__id=category_id)
                 ).distinct()
             except (ValueError, TypeError):
                 pass
-        else:
-            # If no category specified, only show banners with no category targeting
-            queryset = queryset.filter(target_categories__isnull=True)
         
-        # Order by priority and creation date
+        # Order by priority (higher priority first) and creation date
         queryset = queryset.order_by('-priority', '-created_at')
         
+        # Limit results to prevent overwhelming the frontend
+        # Return top 5 banners per position
+        queryset = queryset[:5]
+        
         return queryset
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def track_banner_impression(request):
-    """
-    Track banner impression.
-    Increments impression count and logs details.
-    """
-    serializer = BannerImpressionSerializer(data=request.data)
     
-    if not serializer.is_valid():
-        return Response(
-            {'error': 'Invalid data'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    banner_id = serializer.validated_data['banner_id']
-    
-    try:
-        banner = Banner.objects.get(id=banner_id)
+    def list(self, request, *args, **kwargs):
+        """Override list to add custom response handling"""
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
         
-        # Increment impression count
-        banner.impressions = F('impressions') + 1
-        banner.save(update_fields=['impressions'])
-        
-        # Get client info
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR', '')
-        
-        # Create impression record
-        BannerImpression.objects.create(
-            banner_id=banner_id,
-            ip_address=ip,
-            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
-            page_url=serializer.validated_data.get('page_url', ''),
-            user=request.user if request.user.is_authenticated else None
-        )
-        
-        return Response({'success': True})
-        
-    except Banner.DoesNotExist:
-        return Response(
-            {'error': 'Banner not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Exception as e:
-        # Log error but don't expose details
-        print(f"Error tracking impression: {str(e)}")
-        return Response(
-            {'error': 'Failed to track impression'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def track_banner_click(request):
-    """
-    Track banner click.
-    Increments click count and logs details.
-    """
-    serializer = BannerClickSerializer(data=request.data)
-    
-    if not serializer.is_valid():
-        return Response(
-            {'error': 'Invalid data'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    banner_id = serializer.validated_data['banner_id']
-    
-    try:
-        banner = Banner.objects.get(id=banner_id)
-        
-        # Increment click count
-        banner.clicks = F('clicks') + 1
-        banner.save(update_fields=['clicks'])
-        
-        # Get client info
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = request.META.get('REMOTE_ADDR', '')
-        
-        # Create click record
-        BannerClick.objects.create(
-            banner_id=banner_id,
-            ip_address=ip,
-            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
-            referrer=serializer.validated_data.get('referrer', ''),
-            user=request.user if request.user.is_authenticated else None
-        )
-        
-        return Response({'success': True})
-        
-    except Banner.DoesNotExist:
-        return Response(
-            {'error': 'Banner not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
-    except Exception as e:
-        # Log error but don't expose details
-        print(f"Error tracking click: {str(e)}")
-        return Response(
-            {'error': 'Failed to track click'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        # Always return a list, even if empty
+        return Response(serializer.data, status=status.HTTP_200_OK)
