@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import State, City, Category
+from administrator.models import Banner
 
 class StateSerializer(serializers.ModelSerializer):
     """Serializer for State model."""
@@ -98,3 +99,42 @@ class CategorySimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ['id', 'name', 'icon']
+
+
+
+class PublicBannerSerializer(serializers.ModelSerializer):
+    """Serializer for public banner display."""
+    
+    target_states = serializers.StringRelatedField(many=True, read_only=True)
+    target_categories = serializers.StringRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = Banner
+        fields = [
+            'id',
+            'title',
+            'description',
+            'banner_type',
+            'image',
+            'html_content',
+            'text_content',
+            'position',
+            'click_url',
+            'open_new_tab',
+            'target_states',
+            'target_categories',
+            'priority'
+        ]
+        read_only_fields = fields
+
+
+class BannerImpressionSerializer(serializers.Serializer):
+    """Serializer for tracking banner impressions."""
+    banner_id = serializers.IntegerField()
+    page_url = serializers.URLField(required=False, allow_blank=True)
+    
+
+class BannerClickSerializer(serializers.Serializer):
+    """Serializer for tracking banner clicks."""
+    banner_id = serializers.IntegerField()
+    referrer = serializers.URLField(required=False, allow_blank=True)

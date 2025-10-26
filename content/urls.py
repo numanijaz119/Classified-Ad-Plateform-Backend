@@ -12,6 +12,12 @@ from .views import (
     CategoryDetailView,
     CategorySimpleListView,
 )
+from .banner_views import (
+    PublicBannerListView,
+    track_banner_impression,
+    track_banner_click
+)
+
 
 urlpatterns = [
     # States
@@ -27,4 +33,9 @@ urlpatterns = [
     path('categories/', CategoryListView.as_view(), name='category_list'),
     path('categories/simple/', CategorySimpleListView.as_view(), name='category_simple_list'),
     path('categories/<slug:slug>/', CategoryDetailView.as_view(), name='category_detail'),
+
+    # Banners (NEW)
+    path('banners/', PublicBannerListView.as_view(), name='public_banner_list'),
+    path('banners/track-impression/', track_banner_impression, name='track_banner_impression'),
+    path('banners/track-click/', track_banner_click, name='track_banner_click'),
 ]

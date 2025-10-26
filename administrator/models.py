@@ -142,6 +142,71 @@ class Banner(models.Model):
         self.save(update_fields=['clicks'])
 
 
+class BannerImpression(models.Model):
+    """Track individual banner impressions."""
+    
+    banner = models.ForeignKey(
+        Banner,
+        on_delete=models.CASCADE,
+        related_name='impression_logs'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    ip_address = models.GenericIPAddressField(_('IP Address'))
+    user_agent = models.TextField(_('User Agent'), blank=True)
+    page_url = models.URLField(_('Page URL'), blank=True)
+    viewed_at = models.DateTimeField(_('Viewed At'), auto_now_add=True)
+    
+    # Optional location tracking
+    city = models.CharField(_('City'), max_length=100, blank=True)
+    state = models.CharField(_('State'), max_length=100, blank=True)
+    country = models.CharField(_('Country'), max_length=100, blank=True)
+    
+    class Meta:
+        verbose_name = _('Banner Impression')
+        verbose_name_plural = _('Banner Impressions')
+        indexes = [
+            models.Index(fields=['banner', '-viewed_at']),
+            models.Index(fields=['viewed_at']),
+        ]
+
+
+class BannerClick(models.Model):
+    """Track individual banner clicks."""
+    
+    banner = models.ForeignKey(
+        Banner,
+        on_delete=models.CASCADE,
+        related_name='click_logs'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    ip_address = models.GenericIPAddressField(_('IP Address'))
+    user_agent = models.TextField(_('User Agent'), blank=True)
+    referrer = models.URLField(_('Referrer URL'), blank=True)
+    clicked_at = models.DateTimeField(_('Clicked At'), auto_now_add=True)
+    
+    # Optional location tracking
+    city = models.CharField(_('City'), max_length=100, blank=True)
+    state = models.CharField(_('State'), max_length=100, blank=True)
+    country = models.CharField(_('Country'), max_length=100, blank=True)
+    
+    class Meta:
+        verbose_name = _('Banner Click')
+        verbose_name_plural = _('Banner Clicks')
+        indexes = [
+            models.Index(fields=['banner', '-clicked_at']),
+            models.Index(fields=['clicked_at']),
+        ]
+
 class AdminSettings(models.Model):
     """Model for storing basic admin panel settings."""
     
