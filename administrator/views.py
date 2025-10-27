@@ -780,6 +780,35 @@ class AdminBannerViewSet(AdminViewMixin, viewsets.ModelViewSet):
 # CONTENT MANAGEMENT
 # ============================================================================
 
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def admin_city_list(request):
+    """List all cities (both active and inactive) for admin management."""
+    from content.serializers import CitySerializer
+    from content.models import City
+    
+    # Get all cities (both active and inactive)
+    cities = City.objects.select_related('state').all()
+    
+    # Apply filters if provided
+    state_code = request.GET.get('state')
+    if state_code and state_code != 'all':
+        cities = cities.filter(state__code__iexact=state_code)
+    
+    is_active = request.GET.get('is_active')
+    if is_active is not None:
+        cities = cities.filter(is_active=is_active.lower() == 'true')
+    
+    is_major = request.GET.get('is_major')
+    if is_major is not None:
+        cities = cities.filter(is_major=is_major.lower() == 'true')
+    
+    # Order by major cities first, then by name
+    cities = cities.order_by('-is_major', 'name')
+    
+    serializer = CitySerializer(cities, many=True, context={'request': request})
+    return Response(serializer.data)
+
 
 class AdminStateListView(generics.ListAPIView):
     """Get list of states for admin filtering."""
@@ -888,10 +917,10 @@ def admin_city_create(request):
     """Create a new city."""
     from content.serializers import CitySerializer
 
-    serializer = CitySerializer(data=request.data)
+    serializer = CitySerializer(data=request.data, context={'request': request})
     if serializer.is_valid():
         city = serializer.save()
-        return Response(CitySerializer(city).data, status=201)
+        return Response(CitySerializer(city, context={'request': request}).data, status=201)
     return Response(serializer.errors, status=400)
 
 
@@ -904,13 +933,13 @@ def admin_city_detail(request, city_id):
     city = get_object_or_404(City, id=city_id)
 
     if request.method == "GET":
-        return Response(CitySerializer(city).data)
+        return Response(CitySerializer(city, context={'request': request}).data)
 
     elif request.method == "PUT":
-        serializer = CitySerializer(city, data=request.data, partial=True)
+        serializer = CitySerializer(city, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             city = serializer.save()
-            return Response(CitySerializer(city).data)
+            return Response(CitySerializer(city, context={'request': request}).data)
         return Response(serializer.errors, status=400)
 
     elif request.method == "DELETE":
