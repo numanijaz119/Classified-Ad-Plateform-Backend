@@ -1,10 +1,15 @@
 from rest_framework import generics, status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db.models import Q
-from administrator.models import Banner
-from .serializers import PublicBannerSerializer
+from django.db.models import Q, F
+from administrator.models import Banner, BannerImpression, BannerClick
+from .serializers import (
+    PublicBannerSerializer,
+    BannerImpressionSerializer,
+    BannerClickSerializer
+)
 
 
 class PublicBannerListView(generics.ListAPIView):
@@ -77,3 +82,117 @@ class PublicBannerListView(generics.ListAPIView):
         
         # Always return a list, even if empty
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def track_banner_impression(request):
+    """
+    Track banner impression.
+    Increments impression count and logs details.
+    """
+    serializer = BannerImpressionSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Invalid data', 'details': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    banner_id = serializer.validated_data['banner_id']
+    
+    try:
+        banner = Banner.objects.get(id=banner_id)
+        
+        # Increment impression count using F() to avoid race conditions
+        Banner.objects.filter(id=banner_id).update(
+            impressions=F('impressions') + 1
+        )
+        
+        # Get client info
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            ip = request.META.get('REMOTE_ADDR', '')
+        
+        # Create impression record
+        BannerImpression.objects.create(
+            banner=banner,
+            ip_address=ip,
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+            page_url=serializer.validated_data.get('page_url', ''),
+            user=request.user if request.user.is_authenticated else None
+        )
+        
+        return Response({'success': True, 'message': 'Impression tracked'})
+        
+    except Banner.DoesNotExist:
+        return Response(
+            {'error': 'Banner not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        # Log error but don't expose details to client
+        print(f"Error tracking impression: {str(e)}")
+        return Response(
+            {'error': 'Failed to track impression'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def track_banner_click(request):
+    """
+    Track banner click.
+    Increments click count and logs details.
+    """
+    serializer = BannerClickSerializer(data=request.data)
+    
+    if not serializer.is_valid():
+        return Response(
+            {'error': 'Invalid data', 'details': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    banner_id = serializer.validated_data['banner_id']
+    
+    try:
+        banner = Banner.objects.get(id=banner_id)
+        
+        # Increment click count using F() to avoid race conditions
+        Banner.objects.filter(id=banner_id).update(
+            clicks=F('clicks') + 1
+        )
+        
+        # Get client info
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            ip = request.META.get('REMOTE_ADDR', '')
+        
+        # Create click record
+        BannerClick.objects.create(
+            banner=banner,
+            ip_address=ip,
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+            referrer=serializer.validated_data.get('referrer', ''),
+            user=request.user if request.user.is_authenticated else None
+        )
+        
+        return Response({'success': True, 'message': 'Click tracked'})
+        
+    except Banner.DoesNotExist:
+        return Response(
+            {'error': 'Banner not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        # Log error but don't expose details to client
+        print(f"Error tracking click: {str(e)}")
+        return Response(
+            {'error': 'Failed to track click'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

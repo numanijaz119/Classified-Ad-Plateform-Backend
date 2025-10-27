@@ -50,6 +50,7 @@ urlpatterns = [
     path('categories/stats/', views.AdminCategoryStatsView.as_view(), name='admin-categories-stats'),
     path('categories/create/', views.admin_category_create, name='admin-category-create'),
     path('categories/<int:category_id>/', views.admin_category_detail, name='admin-category-detail'),
+    path('cities/', views.admin_city_list, name='admin-city-list'),
     path('cities/create/', views.admin_city_create, name='admin-city-create'),
     path('cities/<int:city_id>/', views.admin_city_detail, name='admin-city-detail'),
     
