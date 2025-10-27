@@ -250,10 +250,30 @@ class GoogleLoginView(generics.CreateAPIView):
             })
             
         except ValueError as e:
-            logger.error(f"Google token verification failed: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"Google token verification failed: {error_msg}")
+            
+            # Provide user-friendly error messages
+            if 'used too early' in error_msg or 'used too late' in error_msg:
+                return Response(
+                    {'error': 'Your computer\'s clock is not synchronized. Please check your system time settings and try again.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            elif 'expired' in error_msg.lower():
+                return Response(
+                    {'error': 'Google sign-in session expired. Please try again.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                return Response(
+                    {'error': 'Google sign-in failed. Please try again.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"Unexpected error during Google login: {str(e)}")
             return Response(
-                {'error': 'Invalid Google token'}, 
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Google sign-in failed. Please try again later.'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 class UserProfileView(generics.RetrieveAPIView):
