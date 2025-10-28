@@ -378,9 +378,9 @@ class AdminBannerSerializer(serializers.ModelSerializer):
 class AdminStateSerializer(serializers.ModelSerializer):
     """Serializer for admin state management."""
 
-    total_ads = serializers.SerializerMethodField()
-    active_ads = serializers.SerializerMethodField()
-    users_count = serializers.SerializerMethodField()
+    total_ads = serializers.SerializerMethodField(read_only=True)
+    active_ads = serializers.SerializerMethodField(read_only=True)
+    users_count = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = State
@@ -389,11 +389,61 @@ class AdminStateSerializer(serializers.ModelSerializer):
             "code",
             "name",
             "domain",
+            "logo",
+            "favicon",
+            "meta_title",
+            "meta_description",
             "is_active",
             "total_ads",
             "active_ads",
             "users_count",
+            "created_at",
+            "updated_at",
         ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_code(self, value):
+        """Validate state code is unique and uppercase."""
+        value = value.upper()
+        instance = self.instance
+        
+        # Check if code already exists (excluding current instance for updates)
+        if instance:
+            if State.objects.exclude(id=instance.id).filter(code=value).exists():
+                raise serializers.ValidationError(f"State with code '{value}' already exists")
+        else:
+            if State.objects.filter(code=value).exists():
+                raise serializers.ValidationError(f"State with code '{value}' already exists")
+        
+        return value
+
+    def validate_domain(self, value):
+        """Validate domain is unique."""
+        instance = self.instance
+        
+        # Check if domain already exists (excluding current instance for updates)
+        if instance:
+            if State.objects.exclude(id=instance.id).filter(domain=value).exists():
+                raise serializers.ValidationError(f"State with domain '{value}' already exists")
+        else:
+            if State.objects.filter(domain=value).exists():
+                raise serializers.ValidationError(f"State with domain '{value}' already exists")
+        
+        return value
+
+    def validate_name(self, value):
+        """Validate name is unique."""
+        instance = self.instance
+        
+        # Check if name already exists (excluding current instance for updates)
+        if instance:
+            if State.objects.exclude(id=instance.id).filter(name=value).exists():
+                raise serializers.ValidationError(f"State with name '{value}' already exists")
+        else:
+            if State.objects.filter(name=value).exists():
+                raise serializers.ValidationError(f"State with name '{value}' already exists")
+        
+        return value
 
     def get_total_ads(self, obj):
         return obj.ads.exclude(status="deleted").count()

@@ -1,5 +1,5 @@
 # administrator/views.py
-from rest_framework import generics, status, viewsets, filters
+from rest_framework import generics, status, viewsets, filters, serializers
 from rest_framework.decorators import api_view, permission_classes, action as drf_action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -810,12 +810,12 @@ def admin_city_list(request):
     return Response(serializer.data)
 
 
-class AdminStateListView(generics.ListAPIView):
-    """Get list of states for admin filtering."""
+class AdminStateListView(generics.ListCreateAPIView):
+    """List and create states for admin."""
 
     serializer_class = AdminStateSerializer
     permission_classes = [IsAdminUser]
-    queryset = State.objects.filter(is_active=True).order_by("name")
+    queryset = State.objects.all().order_by("name")
 
     def list(self, request, *args, **kwargs):
         """Custom list response with stats."""
@@ -830,19 +830,142 @@ class AdminStateListView(generics.ListAPIView):
                 Ad.objects.filter(state=state).values("user").distinct().count()
             )
 
+            # Build absolute URLs for images
+            logo_url = None
+            if state.logo:
+                logo_url = request.build_absolute_uri(state.logo.url)
+            
+            favicon_url = None
+            if state.favicon:
+                favicon_url = request.build_absolute_uri(state.favicon.url)
+
             states_data.append(
                 {
                     "id": state.id,
                     "code": state.code,
                     "name": state.name,
                     "domain": state.domain,
+                    "logo": logo_url,
+                    "favicon": favicon_url,
+                    "meta_title": state.meta_title,
+                    "meta_description": state.meta_description,
+                    "is_active": state.is_active,
                     "total_ads": ads_count,
                     "active_ads": active_ads,
                     "users_count": users_count,
+                    "created_at": state.created_at.isoformat(),
+                    "updated_at": state.updated_at.isoformat(),
                 }
             )
 
-        return Response({"states": states_data})
+        return Response({"results": states_data})
+
+    def create(self, request, *args, **kwargs):
+        """Create a new state with better error handling."""
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return Response(
+                {
+                    "message": "State created successfully",
+                    "state": serializer.data
+                },
+                status=status.HTTP_201_CREATED
+            )
+        except serializers.ValidationError as e:
+            # Handle validation errors with friendly messages
+            error_messages = []
+            if isinstance(e.detail, dict):
+                for field, errors in e.detail.items():
+                    if isinstance(errors, list):
+                        error_messages.append(f"{field}: {errors[0]}")
+                    else:
+                        error_messages.append(f"{field}: {errors}")
+            else:
+                error_messages.append(str(e.detail))
+            
+            return Response(
+                {"error": " | ".join(error_messages)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error creating state: {str(e)}")
+            return Response(
+                {"error": f"Failed to create state: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminStateDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """Retrieve, update, or delete a state."""
+
+    serializer_class = AdminStateSerializer
+    permission_classes = [IsAdminUser]
+    queryset = State.objects.all()
+    lookup_field = 'id'
+
+    def update(self, request, *args, **kwargs):
+        """Update state with better error handling and optional image updates."""
+        try:
+            partial = True  # Always use partial update
+            instance = self.get_object()
+            
+            # If no new logo is provided, keep the existing one
+            data = request.data.copy()
+            if 'logo' not in request.FILES:
+                data.pop('logo', None)
+            if 'favicon' not in request.FILES:
+                data.pop('favicon', None)
+            
+            serializer = self.get_serializer(instance, data=data, partial=partial)
+            serializer.is_valid(raise_exception=True)
+            self.perform_update(serializer)
+            
+            return Response(
+                {
+                    "message": "State updated successfully",
+                    "state": serializer.data
+                }
+            )
+        except serializers.ValidationError as e:
+            error_messages = []
+            if isinstance(e.detail, dict):
+                for field, errors in e.detail.items():
+                    if isinstance(errors, list):
+                        error_messages.append(f"{field}: {errors[0]}")
+                    else:
+                        error_messages.append(f"{field}: {errors}")
+            else:
+                error_messages.append(str(e.detail))
+            
+            return Response(
+                {"error": " | ".join(error_messages)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Error updating state: {str(e)}")
+            return Response(
+                {"error": f"Failed to update state: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete state with better error handling."""
+        try:
+            instance = self.get_object()
+            state_name = instance.name
+            self.perform_destroy(instance)
+            return Response(
+                {"message": f"State '{state_name}' deleted successfully"},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error(f"Error deleting state: {str(e)}")
+            return Response(
+                {"error": f"Failed to delete state: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class AdminCategoryStatsView(generics.ListAPIView):
