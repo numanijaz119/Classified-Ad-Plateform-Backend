@@ -123,18 +123,6 @@ class Message(models.Model):
     def __str__(self):
         return f"Message from {self.sender.get_full_name()} at {self.created_at}"
 
-
-def save(self, *args, **kwargs):
-    """Override save to update conversation's last_message_at ONLY on creation."""
-    is_new = self.pk is None
-    super().save(*args, **kwargs)
-
-    # CRITICAL: Only update last_message_at when creating NEW message
-    # This prevents conversations from jumping when messages are marked as read
-    if is_new:
-        self.conversation.last_message_at = self.created_at
-        self.conversation.save(update_fields=["last_message_at"])
-
     def mark_as_read(self):
         """Mark this message as read."""
         if not self.is_read:
