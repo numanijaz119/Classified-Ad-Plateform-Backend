@@ -212,8 +212,20 @@ class AdminSettings(models.Model):
     
     # Site settings
     site_name = models.CharField(_('Site Name'), max_length=100, default='Classified Ads')
-    contact_email = models.EmailField(_('Contact Email'))
+    contact_email = models.EmailField(_('Contact Email'), blank=True)
     support_phone = models.CharField(_('Support Phone'), max_length=20, blank=True)
+    
+    # Maintenance mode
+    maintenance_mode = models.BooleanField(
+        _('Maintenance Mode'),
+        default=False,
+        help_text=_('Enable maintenance mode to block non-admin users')
+    )
+    maintenance_message = models.TextField(
+        _('Maintenance Message'),
+        blank=True,
+        default='We are currently performing scheduled maintenance. Please check back soon.'
+    )
     
     # Ad settings
     ad_approval_required = models.BooleanField(
@@ -221,11 +233,21 @@ class AdminSettings(models.Model):
         default=True,
         help_text=_('Require admin approval for new ads')
     )
+    auto_approve_ads = models.BooleanField(
+        _('Auto Approve Ads'),
+        default=False,
+        help_text=_('Automatically approve new ads without manual review')
+    )
     featured_ad_price = models.DecimalField(
         _('Featured Ad Price'),
         max_digits=10,
         decimal_places=2,
         default=9.99
+    )
+    featured_ad_duration_days = models.PositiveIntegerField(
+        _('Featured Ad Duration Days'),
+        default=30,
+        help_text=_('Days that featured ads remain active')
     )
     max_images_per_ad = models.PositiveIntegerField(
         _('Max Images Per Ad'),
@@ -242,9 +264,19 @@ class AdminSettings(models.Model):
         _('User Registration Enabled'),
         default=True
     )
+    allow_registration = models.BooleanField(
+        _('Allow Registration'),
+        default=True,
+        help_text=_('Allow new users to register')
+    )
     email_verification_required = models.BooleanField(
         _('Email Verification Required'),
         default=True
+    )
+    require_email_verification = models.BooleanField(
+        _('Require Email Verification'),
+        default=True,
+        help_text=_('Force users to verify email before accessing features')
     )
     max_ads_per_user = models.PositiveIntegerField(
         _('Max Ads Per User'),

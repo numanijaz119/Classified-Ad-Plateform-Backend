@@ -1080,18 +1080,29 @@ def admin_city_detail(request, city_id):
 @permission_classes([IsAdminUser])
 def admin_settings(request):
     """Get admin settings."""
-    settings = AdminSettings.objects.first()
-    if not settings:
-        settings = AdminSettings.objects.create()
+    settings, created = AdminSettings.objects.get_or_create(
+        pk=1,
+        defaults={
+            'site_name': 'Classified Ads',
+            'contact_email': '',
+            'support_phone': '',
+            'allow_registration': True,
+            'require_email_verification': True,
+            'auto_approve_ads': False,
+            'featured_ad_price': 9.99,
+            'featured_ad_duration_days': 30,
+        }
+    )
 
     return Response(
         {
-            "maintenance_mode": settings.maintenance_mode,
-            "maintenance_message": settings.maintenance_message,
+            "site_name": settings.site_name,
+            "contact_email": settings.contact_email,
+            "support_phone": settings.support_phone,
             "allow_registration": settings.allow_registration,
             "require_email_verification": settings.require_email_verification,
             "auto_approve_ads": settings.auto_approve_ads,
-            "featured_ad_price": settings.featured_ad_price,
+            "featured_ad_price": float(settings.featured_ad_price),
             "featured_ad_duration_days": settings.featured_ad_duration_days,
         }
     )
@@ -1101,14 +1112,25 @@ def admin_settings(request):
 @permission_classes([IsAdminUser])
 def admin_settings_update(request):
     """Update admin settings."""
-    settings = AdminSettings.objects.first()
-    if not settings:
-        settings = AdminSettings.objects.create()
+    settings, created = AdminSettings.objects.get_or_create(
+        pk=1,
+        defaults={
+            'site_name': 'Classified Ads',
+            'contact_email': '',
+            'support_phone': '',
+            'allow_registration': True,
+            'require_email_verification': True,
+            'auto_approve_ads': False,
+            'featured_ad_price': 9.99,
+            'featured_ad_duration_days': 30,
+        }
+    )
 
     # Update fields
     for field in [
-        "maintenance_mode",
-        "maintenance_message",
+        "site_name",
+        "contact_email",
+        "support_phone",
         "allow_registration",
         "require_email_verification",
         "auto_approve_ads",
@@ -1120,7 +1142,17 @@ def admin_settings_update(request):
 
     settings.save()
 
-    return Response({"message": "Settings updated successfully"})
+    return Response({
+        "message": "Settings updated successfully",
+        "site_name": settings.site_name,
+        "contact_email": settings.contact_email,
+        "support_phone": settings.support_phone,
+        "allow_registration": settings.allow_registration,
+        "require_email_verification": settings.require_email_verification,
+        "auto_approve_ads": settings.auto_approve_ads,
+        "featured_ad_price": float(settings.featured_ad_price),
+        "featured_ad_duration_days": settings.featured_ad_duration_days,
+    })
 
 
 # ============================================================================
@@ -1319,22 +1351,4 @@ def admin_clear_cache(request):
     return Response({"message": "Cache cleared successfully"})
 
 
-@api_view(["POST"])
-@permission_classes([IsAdminUser])
-def admin_maintenance_mode(request):
-    """Toggle maintenance mode."""
-    settings = AdminSettings.objects.first()
-    if not settings:
-        settings = AdminSettings.objects.create()
-
-    settings.maintenance_mode = not settings.maintenance_mode
-    settings.save()
-
-    status = "enabled" if settings.maintenance_mode else "disabled"
-
-    return Response(
-        {
-            "message": f"Maintenance mode {status}",
-            "maintenance_mode": settings.maintenance_mode,
-        }
-    )
+# Maintenance mode endpoint removed - feature disabled

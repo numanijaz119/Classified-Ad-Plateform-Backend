@@ -73,7 +73,6 @@ urlpatterns = [
     # SYSTEM UTILITIES
     # ========================================================================
     path('cache/clear/', views.admin_clear_cache, name='admin-clear-cache'),
-    path('maintenance/', views.admin_maintenance_mode, name='admin-maintenance-mode'),
 ]
 
 """

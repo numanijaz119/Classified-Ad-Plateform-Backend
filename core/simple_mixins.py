@@ -64,7 +64,6 @@ class SimpleStateContextMixin:
                 }
                 # Cache for 2 hours (state info doesn't change often)
                 cache.set(cache_key, context, 7200)
-                logger.debug(f"State context for {state_code} cached")
             except:
                 # Fallback context
                 context = {

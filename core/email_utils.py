@@ -70,7 +70,6 @@ class EmailService:
             # Render HTML template
             try:
                 html_message = render_to_string(f'emails/{template_name}.html', context)
-                logger.debug(f"HTML template emails/{template_name}.html rendered successfully")
             except Exception as e:
                 logger.error(f"Failed to render template emails/{template_name}.html: {e}")
                 if not fail_silently:
@@ -79,10 +78,6 @@ class EmailService:
             
             # Generate text version by stripping HTML tags
             text_message = strip_tags(html_message)
-            
-            logger.info(f"Sending email to {recipient_list}")
-            logger.debug(f"Subject: {subject}")
-            logger.debug(f"Template: {template_name}")
             
             # Send email with both HTML and text versions
             msg = EmailMultiAlternatives(

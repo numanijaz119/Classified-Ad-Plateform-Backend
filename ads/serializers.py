@@ -260,7 +260,14 @@ class AdCreateSerializer(serializers.ModelSerializer):
         # Set user and state from context
         validated_data["user"] = self.context["request"].user
         validated_data["state"] = validated_data["city"].state
-        validated_data["status"] = "pending"
+        
+        # Check auto-approve setting
+        from administrator.models import AdminSettings
+        settings = AdminSettings.objects.first()
+        if settings and settings.auto_approve_ads:
+            validated_data["status"] = "approved"
+        else:
+            validated_data["status"] = "pending"
 
         # Create the ad
         ad = Ad.objects.create(**validated_data)
