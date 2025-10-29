@@ -27,7 +27,8 @@ from .serializers import (
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
     ChangePasswordSerializer,
-    UserPrivacySettingsSerializer
+    UserPrivacySettingsSerializer,
+    UserNotificationSettingsSerializer
 )
 from core.utils import get_client_ip
 from core.email_utils import send_verification_email, send_password_reset_email
@@ -41,10 +42,24 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [AllowAny]
     
     def create(self, request, *args, **kwargs):
+        # Check if registration is allowed
+        from administrator.models import AdminSettings
+        settings = AdminSettings.objects.first()
+        if settings and not settings.allow_registration:
+            return Response(
+                {'error': 'Registration is currently disabled. Please contact support.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         user = serializer.save()
+        
+        # Check if email verification is required
+        require_verification = True
+        if settings:
+            require_verification = settings.require_email_verification
         
         # Generate 6-digit verification code with expiry
         verification_code = ''.join(random.choices(string.digits, k=6))
@@ -54,13 +69,18 @@ class RegisterView(generics.CreateAPIView):
         # Generate tokens
         refresh = RefreshToken.for_user(user)
         
-        # Send verification email
-        try:
-            send_verification_email(user, request, verification_code)
-            logger.info(f"Verification email sent to {user.email}")
-        except Exception as e:
-            logger.error(f"Failed to send verification email to {user.email}: {str(e)}")
-            # Don't fail registration if email fails
+        # Send verification email only if required
+        if require_verification:
+            try:
+                send_verification_email(user, request, verification_code)
+                logger.info(f"Verification email sent to {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to send verification email to {user.email}: {str(e)}")
+                # Don't fail registration if email fails
+        else:
+            # Auto-verify if not required
+            user.email_verified = True
+            user.save(update_fields=['email_verified'])
         
         return Response({
             'user': UserSerializer(user).data,
@@ -68,7 +88,8 @@ class RegisterView(generics.CreateAPIView):
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
             },
-            'message': 'Registration successful. Please check your email for verification code.'
+            'message': 'Registration successful. Please check your email for verification code.' if require_verification else 'Registration successful.',
+            'requires_verification': require_verification
         }, status=status.HTTP_201_CREATED)
     
 
@@ -201,16 +222,29 @@ class GoogleLoginView(generics.CreateAPIView):
             first_name = idinfo.get('given_name', '')
             last_name = idinfo.get('family_name', '')
             
-            # Get or create user
-            user, created = User.objects.get_or_create(
-                email=email,
-                defaults={
-                    'google_id': google_id,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'email_verified': True,  # Google accounts are pre-verified
-                }
-            )
+            # Check if user exists
+            try:
+                user = User.objects.get(email=email)
+                created = False
+            except User.DoesNotExist:
+                # Check if registration is allowed for new users
+                from administrator.models import AdminSettings
+                admin_settings = AdminSettings.objects.first()
+                if admin_settings and not admin_settings.allow_registration:
+                    return Response(
+                        {'error': 'Registration is currently disabled. Please contact support.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+                
+                # Create new user
+                user = User.objects.create(
+                    email=email,
+                    google_id=google_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email_verified=True,  # Google accounts are pre-verified
+                )
+                created = True
             
             # Update Google ID if user exists but doesn't have it
             if not created and not user.google_id:
@@ -331,6 +365,26 @@ class UserPrivacySettingsView(generics.UpdateAPIView):
         return Response({
             'settings': serializer.data,
             'message': 'Privacy settings updated successfully.'
+        })
+
+
+class UserNotificationSettingsView(generics.UpdateAPIView):
+    """Update notification settings endpoint."""
+    serializer_class = UserNotificationSettingsSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'settings': serializer.data,
+            'message': 'Notification settings updated successfully.'
         })
 
 @api_view(['DELETE'])

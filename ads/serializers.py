@@ -190,6 +190,23 @@ class AdDetailSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.user == request.user
         return False
+    
+    def to_representation(self, instance):
+        """Override to respect user privacy settings."""
+        data = super().to_representation(instance)
+        
+        # Check user's privacy settings
+        user = instance.user
+        
+        # Hide email if user has disabled show_email
+        if not user.show_email:
+            data['contact_email_display'] = None
+        
+        # Hide phone if user has disabled show_phone
+        if not user.show_phone:
+            data['contact_phone'] = None
+        
+        return data
 
 
 class AdCreateSerializer(serializers.ModelSerializer):
@@ -260,7 +277,14 @@ class AdCreateSerializer(serializers.ModelSerializer):
         # Set user and state from context
         validated_data["user"] = self.context["request"].user
         validated_data["state"] = validated_data["city"].state
-        validated_data["status"] = "pending"
+        
+        # Check auto-approve setting
+        from administrator.models import AdminSettings
+        settings = AdminSettings.objects.first()
+        if settings and settings.auto_approve_ads:
+            validated_data["status"] = "approved"
+        else:
+            validated_data["status"] = "pending"
 
         # Create the ad
         ad = Ad.objects.create(**validated_data)

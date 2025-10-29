@@ -134,7 +134,7 @@ def track_banner_impression(request):
         )
     except Exception as e:
         # Log error but don't expose details to client
-        print(f"Error tracking impression: {str(e)}")
+        logger.error(f"Error tracking impression: {str(e)}")
         return Response(
             {'error': 'Failed to track impression'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -191,7 +191,7 @@ def track_banner_click(request):
         )
     except Exception as e:
         # Log error but don't expose details to client
-        print(f"Error tracking click: {str(e)}")
+        logger.error(f"Error tracking click: {str(e)}")
         return Response(
             {'error': 'Failed to track click'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

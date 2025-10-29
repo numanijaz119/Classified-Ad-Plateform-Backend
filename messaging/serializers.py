@@ -134,7 +134,8 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def get_last_message(self, obj):
         """Get the last message in this conversation."""
-        last_msg = obj.messages.last()
+        # Use order_by to ensure we get the actual last message
+        last_msg = obj.messages.order_by('-created_at').first()
         if last_msg:
             return MessageSerializer(last_msg, context=self.context).data
         return None

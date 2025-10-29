@@ -246,6 +246,25 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
             count=Count('id')
         ).order_by('-count')
     
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def featured_pricing(self, request):
+        """Get featured ad pricing and duration."""
+        from administrator.models import AdminSettings
+        settings = AdminSettings.objects.first()
+        
+        featured_price = 9.99  # default
+        featured_duration_days = 30  # default
+        
+        if settings:
+            featured_price = float(settings.featured_ad_price)
+            featured_duration_days = settings.featured_ad_duration_days
+        
+        return Response({
+            'price': featured_price,
+            'duration_days': featured_duration_days,
+            'currency': 'USD'
+        })
+    
     @action(detail=False, methods=['get'])
     def featured(self, request):
         """Get only featured ads - sorting handled by SearchFilterMixin."""
@@ -334,6 +353,16 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
         serializer = AdPromoteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
+        # Get featured ad settings
+        from administrator.models import AdminSettings
+        settings = AdminSettings.objects.first()
+        featured_duration_days = 30  # default
+        featured_price = 9.99  # default
+        
+        if settings:
+            featured_duration_days = settings.featured_ad_duration_days
+            featured_price = float(settings.featured_ad_price)
+        
         # Here you would integrate with payment processor
         # For now, we'll simulate successful payment
         payment_id = serializer.validated_data.get('payment_id', f"promo_{ad.id}_{timezone.now().timestamp()}")
@@ -341,12 +370,14 @@ class AdViewSet(StateAwareViewMixin, SearchFilterMixin, ModelViewSet):
         # Update ad to featured
         ad.plan = 'featured'
         ad.featured_payment_id = payment_id
-        ad.featured_expires_at = timezone.now() + timedelta(days=30)
+        ad.featured_expires_at = timezone.now() + timedelta(days=featured_duration_days)
         ad.save(update_fields=['plan', 'featured_payment_id', 'featured_expires_at'])
         
         return Response({
             'message': 'Ad promoted to featured successfully',
-            'featured_expires_at': ad.featured_expires_at
+            'featured_expires_at': ad.featured_expires_at,
+            'price': featured_price,
+            'duration_days': featured_duration_days
         })
 
 # Keep other ViewSets unchanged

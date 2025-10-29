@@ -286,7 +286,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         queryset = (
             Message.objects.filter(conversation__in=user_conversations)
             .select_related("sender", "conversation", "conversation__ad")
-            .order_by("-created_at")
+            .order_by("created_at")  # Changed to ascending for proper message order
         )
 
         conversation_id = self.request.query_params.get("conversation_id")
@@ -300,6 +300,18 @@ class MessageViewSet(viewsets.ModelViewSet):
         if self.request.query_params.get("unread") == "true":
             queryset = queryset.filter(is_read=False).exclude(sender=user)
 
+        # Support for incremental fetching - only get messages after a certain timestamp
+        since = self.request.query_params.get("since")
+        if since:
+            try:
+                from django.utils.dateparse import parse_datetime
+                since_datetime = parse_datetime(since)
+                if since_datetime:
+                    queryset = queryset.filter(created_at__gt=since_datetime)
+                    logger.info(f"Fetching messages since {since_datetime}, found {queryset.count()} new messages")
+            except Exception as e:
+                logger.error(f"Error parsing 'since' parameter: {str(e)}")
+
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -310,16 +322,23 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         message = serializer.save()
 
+        # Get conversation and recipient
         conversation = message.conversation
         recipient = conversation.get_other_user(request.user)
 
-        NotificationService.send_new_message_notification(
-            recipient=recipient,
-            sender=request.user,
-            message=message,
-            conversation=conversation,
-        )
+        # Send notification (email will be sent asynchronously in background)
+        try:
+            NotificationService.send_new_message_notification(
+                recipient=recipient,
+                sender=request.user,
+                message=message,
+                conversation=conversation,
+            )
+        except Exception as e:
+            # Log error but don't fail the message creation
+            logger.error(f"Failed to send notification: {str(e)}")
 
+        # Return response immediately without waiting for email
         return Response(
             MessageSerializer(message, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
