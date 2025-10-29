@@ -26,25 +26,17 @@ def conversation_created(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=Message)
 def message_created(sender, instance, created, **kwargs):
-    """Handle message creation - send notifications."""
+    """Handle message creation - update conversation timestamp."""
     
     if created:
-        # Don't send notification for system messages
-        if instance.message_type == 'system':
-            return
-        
-        # Get recipient
+        # Update conversation's last_message_at timestamp
         conversation = instance.conversation
-        recipient = conversation.get_other_user(instance.sender)
-        
-        # Send message notification
-        NotificationService.send_new_message_notification(
-            recipient=recipient,
-            sender=instance.sender,
-            message=instance,
-            conversation=conversation
-        )
+        conversation.last_message_at = instance.created_at
+        conversation.save(update_fields=['last_message_at'])
         
         logger.info(
-            f"Message notification sent: {instance.sender.email} -> {recipient.email}"
+            f"Message created: {instance.sender.email} in conversation {conversation.id}"
         )
+        
+        # NOTE: Notification is sent from the view to avoid duplicate notifications
+        # and to ensure proper response timing

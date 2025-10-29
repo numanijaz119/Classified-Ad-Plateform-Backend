@@ -2,6 +2,7 @@ from django.conf import settings
 from .models import Notification
 from core.email_utils import EmailService
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -28,22 +29,37 @@ class NotificationService:
         
         if notification_type in ['new_message', 'new_conversation']:
             # For messaging notifications, check email_message_notifications
-            should_send_email = recipient.email_message_notifications
+            should_send_email = getattr(recipient, 'email_message_notifications', True)
         else:
             # For other notifications (ad updates, etc), check email_notifications
-            should_send_email = recipient.email_notifications
+            should_send_email = getattr(recipient, 'email_notifications', True)
         
-        # Send email if preference is enabled
+        # Send email asynchronously if preference is enabled
         if should_send_email and settings.NOTIFICATION_SETTINGS.get('EMAIL_NOTIFICATIONS', False):
-            NotificationService._send_email_notification(notification, recipient)
+            # Use threading to send email in background without blocking response
+            email_thread = threading.Thread(
+                target=NotificationService._send_email_notification,
+                args=(notification.id, recipient.id),
+                daemon=True
+            )
+            email_thread.start()
+            logger.info(f"Email notification queued for {recipient.email}")
         
         return notification
     
     @staticmethod
-    def _send_email_notification(notification, recipient):
-        """Send email notification using existing EmailService."""
+    def _send_email_notification(notification_id, recipient_id):
+        """Send email notification using existing EmailService (runs in background thread)."""
         
         try:
+            # Import here to avoid circular imports and ensure fresh DB connection in thread
+            from .models import Notification
+            from accounts.models import User
+            
+            # Fetch fresh instances in this thread
+            notification = Notification.objects.select_related('conversation', 'ad').get(id=notification_id)
+            recipient = User.objects.get(id=recipient_id)
+            
             # Map notification types to template names
             template_map = {
                 'new_message': 'messaging/new_message',

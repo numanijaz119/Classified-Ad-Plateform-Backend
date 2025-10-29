@@ -338,4 +338,12 @@ class UserPrivacySettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("show_email", "show_phone", "email_notifications")
+        fields = ("show_email", "show_phone")
+
+
+class UserNotificationSettingsSerializer(serializers.ModelSerializer):
+    """Serializer specifically for notification settings."""
+
+    class Meta:
+        model = User
+        fields = ("email_notifications", "email_message_notifications")

@@ -10,6 +10,7 @@ from .views import (
     UserProfileView,
     UserProfileUpdateView,
     UserPrivacySettingsView,
+    UserNotificationSettingsView,
     delete_avatar,
     ForgotPasswordView,
     ResetPasswordView,
@@ -38,6 +39,7 @@ urlpatterns = [
     path('profile/update/', UserProfileUpdateView.as_view(), name='profile_update'),
     path('delete-account/', UserAccountDeleteView.as_view(), name='delete_account'),
     path('profile/privacy/', UserPrivacySettingsView.as_view(), name='privacy_settings'),
+    path('profile/notifications/', UserNotificationSettingsView.as_view(), name='notification_settings'),
     path('profile/avatar/delete/', delete_avatar, name='delete_avatar'),
     
     # Token management

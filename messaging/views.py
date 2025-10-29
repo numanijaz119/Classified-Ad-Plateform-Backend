@@ -310,16 +310,23 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         message = serializer.save()
 
+        # Get conversation and recipient
         conversation = message.conversation
         recipient = conversation.get_other_user(request.user)
 
-        NotificationService.send_new_message_notification(
-            recipient=recipient,
-            sender=request.user,
-            message=message,
-            conversation=conversation,
-        )
+        # Send notification (email will be sent asynchronously in background)
+        try:
+            NotificationService.send_new_message_notification(
+                recipient=recipient,
+                sender=request.user,
+                message=message,
+                conversation=conversation,
+            )
+        except Exception as e:
+            # Log error but don't fail the message creation
+            logger.error(f"Failed to send notification: {str(e)}")
 
+        # Return response immediately without waiting for email
         return Response(
             MessageSerializer(message, context={"request": request}).data,
             status=status.HTTP_201_CREATED,

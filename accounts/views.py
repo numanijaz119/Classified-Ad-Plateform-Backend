@@ -27,7 +27,8 @@ from .serializers import (
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
     ChangePasswordSerializer,
-    UserPrivacySettingsSerializer
+    UserPrivacySettingsSerializer,
+    UserNotificationSettingsSerializer
 )
 from core.utils import get_client_ip
 from core.email_utils import send_verification_email, send_password_reset_email
@@ -364,6 +365,26 @@ class UserPrivacySettingsView(generics.UpdateAPIView):
         return Response({
             'settings': serializer.data,
             'message': 'Privacy settings updated successfully.'
+        })
+
+
+class UserNotificationSettingsView(generics.UpdateAPIView):
+    """Update notification settings endpoint."""
+    serializer_class = UserNotificationSettingsSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user
+    
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response({
+            'settings': serializer.data,
+            'message': 'Notification settings updated successfully.'
         })
 
 @api_view(['DELETE'])

@@ -190,6 +190,23 @@ class AdDetailSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.user == request.user
         return False
+    
+    def to_representation(self, instance):
+        """Override to respect user privacy settings."""
+        data = super().to_representation(instance)
+        
+        # Check user's privacy settings
+        user = instance.user
+        
+        # Hide email if user has disabled show_email
+        if not user.show_email:
+            data['contact_email_display'] = None
+        
+        # Hide phone if user has disabled show_phone
+        if not user.show_phone:
+            data['contact_phone'] = None
+        
+        return data
 
 
 class AdCreateSerializer(serializers.ModelSerializer):
