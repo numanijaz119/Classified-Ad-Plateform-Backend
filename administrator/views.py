@@ -277,8 +277,10 @@ class AdminUserViewSet(
     ordering = ["-created_at"]
 
     def get_queryset(self):
-        """Get users queryset with admin filtering."""
-        return User.objects.select_related().prefetch_related("ads")
+        return User.objects.filter(
+            is_superuser=False,
+            is_staff=False
+        ).select_related().prefetch_related("ads")
 
     @drf_action(detail=True, methods=["post"])
     def action(self, request, pk=None):
