@@ -593,9 +593,16 @@ class AnalyticsDataPointSerializer(serializers.Serializer):
 class CategoryStatsSerializer(serializers.Serializer):
     """Serializer for category statistics."""
 
+    id = serializers.IntegerField()
     name = serializers.CharField()
+    slug = serializers.CharField()
+    icon = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    sort_order = serializers.IntegerField(required=False)
+    is_active = serializers.BooleanField(required=False)
     total_ads = serializers.IntegerField()
     active_ads = serializers.IntegerField()
+    pending_ads = serializers.IntegerField(required=False)
 
 
 class UserGrowthSerializer(serializers.Serializer):
